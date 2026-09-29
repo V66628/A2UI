@@ -1,0 +1,22 @@
+{
+  "name": "a2ui",
+  "version": "0.0.0",
+  "private": true,
+  "description": "A2UI monorepo: SDK, playground and server",
+  "packageManager": "pnpm@12.6.0",
+  "scripts": {
+    "build": "pnpm -r run build",
+    "typecheck": "pnpm -r run typecheck",
+    "test": "pnpm -r --if-present run test",
+    "test:parser": "pnpm --filter @a2ui/core test:parser",
+    "test:store": "pnpm --filter @a2ui/core test:store",
+    "dev:web": "pnpm --filter @a2ui/playground dev",
+    "dev:server": "pnpm --filter @a2ui/server dev"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

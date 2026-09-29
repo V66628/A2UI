@@ -1,0 +1,35 @@
+{
+  "name": "@a2ui/core",
+  "version": "0.0.0",
+  "description": "A2UI UI component library and rendering engine",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json",
+    "test": "mocha",
+    "test:store": "mocha --config .mocharc.store.json",
+    "test:parser": "mocha --config .mocharc.parser.json"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "zustand": "^5.0.15"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^26.6.3",
+    "mocha": "^12.0.2",
+    "tsx": "^4.23.15"
+  }
+}

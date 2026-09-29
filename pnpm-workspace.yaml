@@ -1,0 +1,8 @@
+packages:
+  - "packages/*"
+  - "web/*"
+  - "server/*"
+
+# pnpm v12: 仅允许 esbuild 执行构建脚本（Vite 依赖其平台二进制）
+allowBuilds:
+  esbuild: true

@@ -1,0 +1,26 @@
+{
+  "name": "@a2ui/playground",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "A2UI playground: generate and preview UI via conversation",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -p tsconfig.json && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "antd": "^6.6.5",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.3",
+    "vite": "^5.4.10"
+  },
+  "license": "MIT"
+}
