@@ -1,14 +1,9 @@
 import assert from "node:assert";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { ErrorType } from "../../src/store/types.js";
 import { parseProtocol, type UserAction } from "../../src/parser/index.js";
+import { messages as mockMessages } from "../../mock/text-messages.js";
 
-const mockPath = fileURLToPath(
-  new URL("../../mock/text-v0.8.jsonl", import.meta.url)
-);
-const mockJsonl = readFileSync(mockPath, "utf8");
-const serverSurfaceUpdate = mockJsonl.trim().split("\n")[0];
+const serverSurfaceUpdate = mockMessages[0];
 
 describe("A2UI parser - client→server 消息分开处理", () => {
   describe("userAction", () => {

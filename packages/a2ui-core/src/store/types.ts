@@ -26,12 +26,25 @@ export interface A2UIError {
 export interface HydrateNode<VNode = unknown> {
   /** 组件 ID */
   componentId: string;
+  /**
+   * 节点实例代标识：parser 每次创建节点（含同 id 组件在新 parser/ctx 中
+   * 重新出现）时生成的唯一 token。MountFade 据此判断是否为需要重新播放
+   * 入场动画的新节点——即使 React 复用了同 componentId 的组件实例。
+   */
+  nodeToken: string;
   /** 框架无关的虚拟节点（React 环境下为 ReactElement） */
   _vnode: VNode;
   /** 所属 surface ID */
   ownerSurfaceId: string;
   /** JSONL 协议原文 */
   protocol: string;
+  /**
+   * 是否已挂载（标记清除）：
+   * parser 首次识别新组件时置 false（标记），
+   * 入场动画结束后经暴露的 markMounted 回写为 true（清除）。
+   * 同 id 组件再次 surfaceUpdate 不重置该标记。
+   */
+  hasMounted: boolean;
 }
 
 /** 渲染表面 */
@@ -62,7 +75,7 @@ export interface A2UIStoreState<VNode = unknown> {
   removeSurface: (id: string) => void;
   updateSurface: (
     id: string,
-    patch: Partial<Omit<Surface<VNode>, "id">>
+    patch: Partial<Omit<Surface<VNode>, "id">>,
   ) => void;
   getSurface: (id: string) => Surface<VNode> | undefined;
 
@@ -72,7 +85,7 @@ export interface A2UIStoreState<VNode = unknown> {
   removeHydrateNode: (componentId: string) => void;
   updateHydrateNode: (
     componentId: string,
-    patch: Partial<Omit<HydrateNode<VNode>, "componentId">>
+    patch: Partial<Omit<HydrateNode<VNode>, "componentId">>,
   ) => void;
   getHydrateNode: (componentId: string) => HydrateNode<VNode> | undefined;
 

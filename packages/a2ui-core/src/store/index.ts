@@ -1,5 +1,10 @@
 import { createStore, type StoreApi } from "zustand/vanilla";
-import { setRenderMap } from "../parser/render-registry.js";
+import {
+  setMountNotifier,
+  setRenderMap,
+  setTreeRenderer,
+  type TreeRenderFunction,
+} from "../parser/render-registry.js";
 import type { RenderMap } from "../parser/types.js";
 import type { A2UIStoreState } from "./types.js";
 
@@ -117,15 +122,29 @@ export function getA2UIStore<VNode = unknown>(): A2UIStore<VNode> {
  * - 调用 createStore 创建一个全新的 store 并设为全局单例（即重置状态）
  * - renderMap：组件类型 -> 渲染函数，parser 解析组件时据此渲染 _vnode；
  *   不传则 _vnode 为 null（框架无关模式）
+ * - renderTree：组件树渲染函数；SDK 内部决定调用时机——每次 parse 完成
+ *   treebuild 后自动调用，使用方据此把组件树渲染到目标端；不传则不调用
+ * - 同时注册挂载完成通知器：renderMap 的入场动画结束、markMounted 被调用时，
+ *   把 store 中对应 node.hasMounted 置为 true（幂等）
  * - 可选传入初始协议
  * - 初始化后可通过 getA2UIStore() 获取同一实例
  */
 export function init<VNode = unknown>(
   rawProtocol?: string,
   renderMap?: RenderMap,
+  renderTree?: TreeRenderFunction | null,
 ): A2UIStore<VNode> {
   setRenderMap(renderMap ?? null);
+  setTreeRenderer(renderTree ?? null);
   storeInstance = createA2UIStore();
+  // 入场动画结束 → 回写 store 中 node.hasMounted；已为 true 则跳过（幂等）
+  setMountNotifier((componentId) => {
+    const current = storeInstance?.getState().hydrateNodeMap[componentId];
+    if (!current || current.hasMounted) return;
+    storeInstance!.getState().updateHydrateNode(componentId, {
+      hasMounted: true,
+    });
+  });
   if (rawProtocol) {
     storeInstance.getState().setRawProtocol(rawProtocol);
   }

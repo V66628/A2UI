@@ -62,4 +62,22 @@ parser的测试需要单独运行
 treebuild调用时机为每次parser A2UI JSONL协议后，返回组件树，在a2ui-playground里面增加 对应的渲染预览区域，通过react.render渲染
 14.在调用renderer的时候需要检查对应的协议定义的组件是否注册，如果没有，需要在store中增加error，以及相关的错误描述信息。
 15.在playground里面增加一个错误信息的按钮，点击后打开dialog展示store里面所有的error
+
+16.现在需要在treebuild里面实现component tree的组装 首先需要一个child和parent结构。parent使用column组件，先在原子组件的renderMapspecification/json/standard_catalog_definition.json里面参考 ，实现一个column容器组件，然后增加一个column和三个Text组件的mock数据
+17.创建对应的treebuild的单元测试，使用column的mock数据，生成对应的测试用例，来测试treebuild对于树形结构的处理。
+18.再增加一个mock数据，需要更复杂一些的多级树型嵌套
+19.为每一个mock或者测试数据创建一个按钮，可以点击按钮切换不同的mock数据在playground里面看对应的效果
+20.现在按照协议组件内容以及参考column实现row的渲染，同时修改多级嵌套数据，让row跟cloumn混排。
+21.viewStore做一下优化，顶部展示当前渲染的组件总数
+22.现在需要实现buffer，stream处理jsonL的能力，首先把 column-nested-v0.8.jsonl 拆为一个A2UI消息里面只定义一个组件的JSONLine数组
+23.在playground里面模拟stream，同步的逐条推送 column-nested-stream-v0.8.jsonl 里面定义的JSONL协议，由parser处理，看下是否符合预期
+24.1.不要使用JSONL，直接使用TS模块定义JSONL数组
+2。不需要额外的streamParser，而是parser天然就需要支持不断的调用以及更新组件的能力
+25.要在init的时候，传入对应的渲染组件树的方法，由SDK内部来决定调用组件渲染的时机，现在的调用时机是每次treebuild后就调用
+26.基于标记清除实现stream组件渲染时的淡出效果，在paser识别到新组件的时候，在hydrateNode中增加hasMounted标记。在renderMap渲染时，增加一个0.3s的淡出动画。动画结束时，通过暴露的方法把store中的hydratehasMounted设置为true
+27.现在实现缓冲区， 增加一个模拟完整JSON stream输出的能力，每50ms输出50的长度。
+buffer拿到不完整的JSON，需要尝试获取到完整的JSONL后，补全协议，发送给parser解析
+每一个a2ui消息，需要处理为一个完整的可解析的jsonL，
+suerfaceUpdate需要每一个component都处理成独立的jsonL
+28.
  -->

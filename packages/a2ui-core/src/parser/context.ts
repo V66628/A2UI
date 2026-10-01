@@ -28,6 +28,15 @@ export function createParseContext(): ParseContext {
   };
 }
 
+/** 节点实例代标识自增序列 */
+let nodeTokenSeq = 0;
+
+/** 生成节点实例代标识：每次创建 HydrateNode 时调用，进程内唯一 */
+export function createNodeToken(): string {
+  nodeTokenSeq += 1;
+  return `a2ui-node-${nodeTokenSeq}`;
+}
+
 export function addParseError(ctx: ParseContext, content: string): void {
   addA2UIError(ctx, { type: ErrorType.PARSE_ERROR, content });
 }

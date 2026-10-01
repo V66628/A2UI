@@ -1,16 +1,21 @@
 import assert from "node:assert";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { ErrorType } from "../../src/store/types.js";
 // 待实现模块（TDD 红灯阶段：此时 src/parser/index.ts 尚不存在 parseProtocol）
-import { parseProtocol } from "../../src/parser/index.js";
-import { setRenderMap } from "../../src/parser/render-registry.js";
+import {
+  createParser,
+  parseProtocol,
+  type RenderContext,
+} from "../../src/parser/index.js";
+import {
+  setMountNotifier,
+  setRenderMap,
+  setTreeRenderer,
+} from "../../src/parser/render-registry.js";
+import type { ComponentTree } from "../../src/treebuilder/types.js";
+import { messages as mockMessages } from "../../mock/text-messages.js";
 
-// 读取 mock 协议：mock/text-v0.8.jsonl
-const mockPath = fileURLToPath(
-  new URL("../../mock/text-v0.8.jsonl", import.meta.url),
-);
-const mockJsonl = readFileSync(mockPath, "utf8");
+// mock 协议：TS 模块定义的消息数组，整体拼接为 JSONL
+const mockJsonl = mockMessages.join("\n");
 
 describe("A2UI parser", () => {
   describe("整体返回结构", () => {
@@ -181,6 +186,143 @@ describe("A2UI parser", () => {
       const result = parseProtocol(unregisteredLine);
       assert.strictEqual(result.errors.length, 0);
       assert.strictEqual(result.hydrateNodes[0]._vnode, null);
+    });
+  });
+
+  describe("组件树渲染函数（init 注入，SDK 在 treebuild 后调用）", () => {
+    afterEach(() => {
+      setTreeRenderer(null);
+      setRenderMap(null);
+    });
+
+    it("每次 parse 完成 treebuild 后调用一次渲染函数", () => {
+      const trees: ComponentTree[] = [];
+      setTreeRenderer((tree) => trees.push(tree));
+
+      const parser = createParser();
+      parser.parse(mockMessages[0]);
+      assert.strictEqual(trees.length, 1);
+      parser.parse(mockMessages[1]);
+      assert.strictEqual(trees.length, 2);
+    });
+
+    it("渲染函数收到的组件树 surfaceId 为 main、根节点随 beginRendering 变为 root", () => {
+      const trees: ComponentTree[] = [];
+      setTreeRenderer((tree) => trees.push(tree));
+
+      const parser = createParser();
+      parser.parse(mockMessages[0]);
+      parser.parse(mockMessages[1]);
+
+      const last = trees[trees.length - 1];
+      assert.strictEqual(last.surfaceId, "main");
+      assert.strictEqual(last.root?.node.componentId, "root");
+    });
+
+    it("未注入渲染函数时 parse 行为不受影响", () => {
+      setTreeRenderer(null);
+      const result = createParser().parse(mockMessages[0]);
+      assert.strictEqual(result.hydrateNodes.length, 1);
+    });
+  });
+
+  describe("hasMounted 挂载标记（标记清除）", () => {
+    afterEach(() => {
+      setRenderMap(null);
+      setMountNotifier(null);
+    });
+
+    /** 单 Text 组件的 surfaceUpdate 消息行 */
+    const singleTextLine = (id: string): string =>
+      JSON.stringify({
+        surfaceUpdate: {
+          surfaceId: "main",
+          components: [
+            { id, component: { Text: { text: { literalString: id } } } },
+          ],
+        },
+      });
+
+    it("parser 首次识别新组件时 hasMounted 为 false（节点与 RenderContext 均如此）", () => {
+      const contexts: RenderContext[] = [];
+      setRenderMap({
+        Text: (_props, context) => {
+          contexts.push(context);
+          return {};
+        },
+      });
+
+      const parser = createParser();
+      parser.parse(singleTextLine("a"));
+
+      assert.strictEqual(parser.getResult().hydrateNodes[0].hasMounted, false);
+      assert.strictEqual(contexts[0].hasMounted, false);
+    });
+
+    it("调用 context.markMounted 后节点 hasMounted 变 true，并触发通知器；重复调用幂等", () => {
+      let captured: RenderContext | null = null;
+      setRenderMap({
+        Text: (_props, context) => {
+          captured = context;
+          return {};
+        },
+      });
+      const notified: string[] = [];
+      setMountNotifier((componentId) => notified.push(componentId));
+
+      const parser = createParser();
+      parser.parse(singleTextLine("a"));
+
+      captured!.markMounted();
+      assert.strictEqual(parser.getResult().hydrateNodes[0].hasMounted, true);
+      assert.deepStrictEqual(notified, ["a"]);
+
+      // 再次调用幂等：不重复通知
+      captured!.markMounted();
+      assert.deepStrictEqual(notified, ["a"]);
+    });
+
+    it("同 id 组件再次 surfaceUpdate（组件更新）不重置 hasMounted", () => {
+      let captured: RenderContext | null = null;
+      setRenderMap({
+        Text: (_props, context) => {
+          captured = context;
+          return {};
+        },
+      });
+
+      const parser = createParser();
+      parser.parse(singleTextLine("a"));
+      captured!.markMounted();
+      // 同 id 再次出现：新 RenderContext 也应读到 true
+      parser.parse(singleTextLine("a"));
+
+      assert.strictEqual(parser.getResult().hydrateNodes[0].hasMounted, true);
+      assert.strictEqual(captured!.hasMounted, true);
+    });
+
+    it("节点每次创建都生成新 nodeToken；RenderContext.nodeToken 与节点一致", () => {
+      const tokens: string[] = [];
+      setRenderMap({
+        Text: (_props, context) => {
+          tokens.push(context.nodeToken);
+          return {};
+        },
+      });
+
+      const parser = createParser();
+      parser.parse(singleTextLine("a"));
+      parser.parse(singleTextLine("a"));
+
+      // 每次 parse：surfaceUpdate 渲染 1 次 + rerenderAllNodes 1 次
+      assert.strictEqual(tokens.length, 4);
+      assert.strictEqual(tokens[0], tokens[1]);
+      assert.strictEqual(tokens[2], tokens[3]);
+      assert.notStrictEqual(tokens[0], tokens[2]);
+      assert.strictEqual(
+        tokens[3],
+        parser.getResult().hydrateNodes[0].nodeToken,
+      );
     });
   });
 });

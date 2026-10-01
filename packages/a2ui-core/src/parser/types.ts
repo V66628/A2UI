@@ -36,12 +36,29 @@ export interface ClientEvent {
 export interface RenderContext {
   /** 当前组件 id */
   componentId: string;
+  /** 当前节点实例代标识：每次创建节点都不同，供 renderMap 识别新节点实例 */
+  nodeToken: string;
   /** 所属 surface id */
   ownerSurfaceId: string;
   /** 所属 surface 的数据模型（用于解析 path 绑定） */
   dataModel?: Record<string, unknown>;
   /** JSONL 协议原文 */
   protocol: string;
+  /**
+   * 在同一 surface 内按组件 id 解析被引用的组件节点
+   * （用于 Column.children / Button.child 等组件引用；
+   * 建议在组件实际 render 时惰性调用）
+   */
+  resolveNode?: (componentId: string) => HydrateNode | null;
+  /**
+   * 当前节点是否已挂载：false 表示新识别组件，renderMap 可据此播放入场动画。
+   */
+  hasMounted: boolean;
+  /**
+   * 入场动画结束时调用：清除标记——parser 把 ctx 中该节点 hasMounted
+   * 置为 true，并经 init 注册的通知器同步回 store。幂等。
+   */
+  markMounted: () => void;
 }
 
 /**
