@@ -1,5 +1,6 @@
 import type { ComponentTree } from "../treebuilder/types.js";
 import type { A2UIError, HydrateNode, Surface } from "../store/types.js";
+import type { ChildrenTemplate, TemplateChild } from "./template.js";
 
 /** 消息方向 */
 export type MessageDirection = "server-to-client" | "client-to-server";
@@ -51,6 +52,11 @@ export interface RenderContext {
    */
   resolveNode?: (componentId: string) => HydrateNode | null;
   /**
+   * 渲染 children.template 的动态子项：由 parser 按当前数据模型与 item
+   * 作用域解析模板，返回各子项 vnode（容器适配器惰性调用）。
+   */
+  resolveTemplate?: (template: ChildrenTemplate) => TemplateChild[];
+  /**
    * 当前节点是否已挂载：false 表示新识别组件，renderMap 可据此播放入场动画。
    */
   hasMounted: boolean;
@@ -59,6 +65,16 @@ export interface RenderContext {
    * 置为 true，并经 init 注册的通知器同步回 store。幂等。
    */
   markMounted: () => void;
+  /**
+   * 本地乐观写（交互组件 path 绑定输入）：按 path 深写入所属 surface
+   * 数据模型，parser 随后自动 rerenderAllNodes 重渲染。
+   */
+  writeDataModel?: (path: string, value: unknown) => void;
+  /**
+   * 派发 userAction（如 Button 点击）：name 取自组件 action.name，
+   * context 为绑定解析后的对象；parser 补齐 timestamp 后交出口 sink。
+   */
+  emitUserAction?: (name: string, context: Record<string, unknown>) => void;
 }
 
 /**

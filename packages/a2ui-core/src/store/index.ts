@@ -1,12 +1,19 @@
 import { createStore, type StoreApi } from "zustand/vanilla";
 import {
+  applyDataModelUpdate,
+  commitLocalWrite,
+} from "../parser/data-model.js";
+import {
+  setActionSink,
+  setDataModelBridge,
+  setLocalChangeNotifier,
   setMountNotifier,
   setRenderMap,
   setTreeRenderer,
   type TreeRenderFunction,
 } from "../parser/render-registry.js";
-import type { RenderMap } from "../parser/types.js";
-import type { A2UIStoreState } from "./types.js";
+import type { RenderMap, UserAction } from "../parser/types.js";
+import type { A2UIStoreState, Surface } from "./types.js";
 
 export * from "./types.js";
 
@@ -103,6 +110,30 @@ export function createA2UIStore<VNode = unknown>(): A2UIStore<VNode> {
 // ---- 全局单例 ----
 let storeInstance: A2UIStore | null = null;
 
+// ---- outgoing userAction 队列 ----
+let outgoingActions: UserAction[] = [];
+const outgoingListeners = new Set<() => void>();
+
+/** 获取当前 outgoing userAction 队列（数组引用仅在增删时改变） */
+export function getOutgoingActions(): readonly UserAction[] {
+  return outgoingActions;
+}
+
+/** 订阅队列变化（供 useSyncExternalStore）；返回取消订阅函数 */
+export function subscribeOutgoingActions(listener: () => void): () => void {
+  outgoingListeners.add(listener);
+  return () => {
+    outgoingListeners.delete(listener);
+  };
+}
+
+/** 清空 outgoing 队列并通知订阅者 */
+export function clearOutgoingActions(): void {
+  if (outgoingActions.length === 0) return;
+  outgoingActions = [];
+  outgoingListeners.forEach((listener) => listener());
+}
+
 /**
  * 获取全局唯一的 A2UI store 实例（懒加载单例）
  *
@@ -137,12 +168,68 @@ export function init<VNode = unknown>(
   setRenderMap(renderMap ?? null);
   setTreeRenderer(renderTree ?? null);
   storeInstance = createA2UIStore();
+  // 新会话：清空 outgoing userAction 队列
+  outgoingActions = [];
   // 入场动画结束 → 回写 store 中 node.hasMounted；已为 true 则跳过（幂等）
   setMountNotifier((componentId) => {
     const current = storeInstance?.getState().hydrateNodeMap[componentId];
     if (!current || current.hasMounted) return;
     storeInstance!.getState().updateHydrateNode(componentId, {
       hasMounted: true,
+    });
+  });
+  // userAction 出口：入 outgoing 队列并通知订阅者（playground 面板读取）
+  setActionSink((action) => {
+    outgoingActions = [...outgoingActions, action];
+    outgoingListeners.forEach((listener) => listener());
+  });
+  // 数据模型桥：parse 时 dataModelUpdate 首先写入中心 store，
+  // 渲染期全部消费也从 store 读取——store 是数据模型唯一数据源。
+  setDataModelBridge({
+    ensureSurface: (surfaceId) => {
+      const state = storeInstance!.getState();
+      if (!state.surfaceMap[surfaceId]) {
+        state.addSurface({
+          id: surfaceId,
+          beginRender: false,
+          rootNode: null,
+        });
+      }
+    },
+    getDataModel: (surfaceId) =>
+      storeInstance?.getState().surfaceMap[surfaceId]?.dataModel,
+    applyDataModelUpdate: (surfaceId, path, contents) => {
+      const state = storeInstance!.getState();
+      let surface: Surface = state.surfaceMap[surfaceId];
+      if (!surface) {
+        surface = { id: surfaceId, beginRender: false, rootNode: null };
+      }
+      // 纯逻辑替换 / 深写，结果回写 surface.dataModel；addSurface 替换该条目并通知
+      applyDataModelUpdate(surface, path, contents);
+      state.addSurface(surface);
+    },
+    commitLocalWrite: (surfaceId, path, value) => {
+      const state = storeInstance!.getState();
+      let surface: Surface = state.surfaceMap[surfaceId];
+      if (!surface) {
+        surface = { id: surfaceId, beginRender: false, rootNode: null };
+      }
+      commitLocalWrite(surface, path, value);
+      state.addSurface(surface);
+    },
+  });
+  // 本地写 cycle 后 mirror 快照进 store（rawProtocol 不变）
+  setLocalChangeNotifier((result) => {
+    storeInstance?.setState({
+      surfaceMap: Object.fromEntries(
+        result.surfaces.map((surface) => [surface.id, surface]),
+      ),
+      hydrateNodeMap: Object.fromEntries(
+        result.hydrateNodes.map((node) => [node.componentId, node]),
+      ),
+      errorMap: Object.fromEntries(
+        result.errors.map((error, index) => [`a2ui-error-${index}`, error]),
+      ),
     });
   });
   if (rawProtocol) {

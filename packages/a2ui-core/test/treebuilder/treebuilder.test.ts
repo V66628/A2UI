@@ -80,7 +80,7 @@ describe("A2UI treebuilder", () => {
       assert.deepStrictEqual(extractChildIds(node), ["only", "x"]);
     });
 
-    it("children.template（数据驱动）暂不支持，应返回空数组", () => {
+    it("children.template（数据驱动）应把模板组件 id 计为被引用子节点", () => {
       const [node] = parseNodes(
         surfaceUpdate([
           component("col", "Column", {
@@ -90,7 +90,7 @@ describe("A2UI treebuilder", () => {
           }),
         ]),
       );
-      assert.deepStrictEqual(extractChildIds(node), []);
+      assert.deepStrictEqual(extractChildIds(node), ["tpl"]);
     });
 
     it("无任何引用的叶子组件应返回空数组", () => {

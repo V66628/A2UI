@@ -2,17 +2,26 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { Button, Empty, Modal, Space, Statistic, Tag } from "antd";
 import {
+  clearOutgoingActions,
   createJsonStreamBuffer,
   createParser,
   getA2UIStore,
+  getOutgoingActions,
+  subscribeOutgoingActions,
   setTreeRenderer,
   type A2UIStoreState,
   type A2UIError,
   ErrorType,
   type ParseResult,
   type TreeRenderFunction,
+  type UserAction,
 } from "@a2ui/core";
-import { loadMock, resetForStreaming, type MockEntry } from "./main";
+import {
+  fetchNonSSE,
+  loadMock,
+  resetForStreaming,
+  type MockEntry,
+} from "./main";
 
 /** 流式模拟：每次推送的字符长度 */
 const STREAM_CHUNK_SIZE = 50;
@@ -117,6 +126,13 @@ function App({ catalog, initialMockId }: AppProps) {
   );
   const [storeOpen, setStoreOpen] = useState(false);
   const [errorOpen, setErrorOpen] = useState(false);
+  const [actionOpen, setActionOpen] = useState(false);
+
+  // outgoing userAction 队列（init 时随新会话清空）
+  const outgoingActions = useSyncExternalStore(
+    subscribeOutgoingActions,
+    getOutgoingActions,
+  ) as readonly UserAction[];
 
   // ---- stream 模拟状态 ----
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -124,6 +140,13 @@ function App({ catalog, initialMockId }: AppProps) {
   const [streamProgress, setStreamProgress] = useState<{
     current: number;
     total: number;
+  } | null>(null);
+
+  // ---- 非 SSE 接口调用状态 ----
+  const [nonSSELoading, setNonSSELoading] = useState(false);
+  const [nonSSEStatus, setNonSSEStatus] = useState<{
+    ok: boolean;
+    text: string;
   } | null>(null);
 
   /** 卸载时确保定时器被清理 */
@@ -275,6 +298,39 @@ function App({ catalog, initialMockId }: AppProps) {
     setActiveMockId(id);
   };
 
+  /**
+   * 调用 a2ui-server 非 SSE 接口（POST /?stream=false）：
+   * 停止任何流式推送 → 请求一次性 JSON 响应 → 解出 A2UI 消息重建 parser 渲染。
+   */
+  const handleFetchNonSSE = async () => {
+    invalidateLoops();
+    stopStreamTimer();
+    setIsStreaming(false);
+    setStreamProgress(null);
+    setNonSSELoading(true);
+    setNonSSEStatus(null);
+
+    try {
+      const result = await fetchNonSSE(
+        "Request from playground: build UI (non-SSE)",
+        renderTreeRef.current,
+      );
+      resetStoreCache();
+      setActiveMockId("server-non-sse");
+      setNonSSEStatus({
+        ok: true,
+        text: `成功 · ${result.messageCount} 条 A2UI 消息 · thread ${result.threadId}`,
+      });
+    } catch (error) {
+      setNonSSEStatus({
+        ok: false,
+        text: `失败：${error instanceof Error ? error.message : String(error)}（请确认 a2ui-server 已在 8787 端口启动）`,
+      });
+    } finally {
+      setNonSSELoading(false);
+    }
+  };
+
   const errorEntries = Object.entries(state.errorMap);
 
   // 当前渲染组件总数，及按组件类型（取自协议）的分项计数
@@ -341,6 +397,26 @@ function App({ catalog, initialMockId }: AppProps) {
         </Space>
       </div>
 
+      <div data-testid="server-controls" style={{ marginTop: 16 }}>
+        <Space>
+          <Button
+            data-testid="fetch-non-sse"
+            onClick={handleFetchNonSSE}
+            loading={nonSSELoading}
+          >
+            调用非 SSE 接口（POST /?stream=false）
+          </Button>
+          {nonSSEStatus && (
+            <Tag
+              data-testid="non-sse-status"
+              color={nonSSEStatus.ok ? "success" : "error"}
+            >
+              {nonSSEStatus.text}
+            </Tag>
+          )}
+        </Space>
+      </div>
+
       <div style={{ marginTop: 24 }}>
         <Button
           type="primary"
@@ -355,6 +431,13 @@ function App({ catalog, initialMockId }: AppProps) {
           style={{ marginLeft: 12 }}
         >
           查看错误（{errorEntries.length}）
+        </Button>
+        <Button
+          data-testid="show-useractions"
+          onClick={() => setActionOpen(true)}
+          style={{ marginLeft: 12 }}
+        >
+          查看 userAction（{outgoingActions.length}）
         </Button>
       </div>
 
@@ -436,6 +519,62 @@ function App({ catalog, initialMockId }: AppProps) {
           ) : (
             errorEntries.map(([errorId, error]) => (
               <ErrorItem key={errorId} errorId={errorId} error={error} />
+            ))
+          )}
+        </div>
+      </Modal>
+
+      <Modal
+        title="outgoing userAction"
+        open={actionOpen}
+        onOk={() => setActionOpen(false)}
+        onCancel={() => setActionOpen(false)}
+        width={640}
+        okText="关闭"
+        footer={[
+          <Button
+            key="clear"
+            danger
+            data-testid="clear-useractions"
+            disabled={outgoingActions.length === 0}
+            onClick={() => clearOutgoingActions()}
+          >
+            清空
+          </Button>,
+          <Button
+            key="close"
+            type="primary"
+            onClick={() => setActionOpen(false)}
+          >
+            关闭
+          </Button>,
+        ]}
+      >
+        <div
+          data-testid="useraction-list"
+          style={{ maxHeight: "60vh", overflow: "auto" }}
+        >
+          {outgoingActions.length === 0 ? (
+            <Empty
+              description="暂无 userAction"
+              data-testid="useraction-empty"
+            />
+          ) : (
+            outgoingActions.map((action, index) => (
+              <pre
+                key={index}
+                data-testid="useraction-item"
+                style={{
+                  padding: 12,
+                  background: "#f5f5f5",
+                  border: "1px solid #ddd",
+                  borderRadius: 8,
+                  whiteSpace: "pre-wrap",
+                  wordBreak: "break-word",
+                }}
+              >
+                {JSON.stringify(action, null, 2)}
+              </pre>
             ))
           )}
         </div>

@@ -1,7 +1,16 @@
-// a2ui-server 入口
-// 职责（待实现）：
-// - 基于 Koa 提供服务接口
-// - 基于 OpenAI 实现 A2UI agent
-// - 支持 A2UI 协议的生成以及缓存
+import { createApp } from "./app";
 
-console.log("a2ui-server is not implemented yet");
+const port = Number(process.env.PORT ?? 8787);
+
+const server = createApp().listen(port, () => {
+  console.log(`a2ui-server listening on http://localhost:${port}`);
+  console.log(`  GET  /health`);
+  console.log(`  POST /  (input → AG-UI over SSE → A2UI protocol stream)`);
+});
+
+// 优雅退出
+const shutdown = () => {
+  server.close(() => process.exit(0));
+};
+process.on("SIGINT", shutdown);
+process.on("SIGTERM", shutdown);

@@ -9,8 +9,10 @@ export * from "./types.js";
  * 支持的组件引用形态（见 specification/json/standard_catalog_definition.json）：
  * - child: string（如 Button / Card 的单子组件）
  * - children.explicitList: string[]（如 Row / Column / List 的显式子组件列表）
+ * - children.template.componentId: string（数据驱动动态子项的模板组件；
+ *   实际渲染数量由数据决定，结构上以模板组件作为单个代表子节点）
  *
- * 解析失败或无引用时返回空数组；children.template（数据驱动）暂不支持。
+ * 解析失败或无引用时返回空数组。
  */
 export function extractChildIds(node: HydrateNode): string[] {
   let message: unknown;
@@ -46,12 +48,19 @@ export function extractChildIds(node: HydrateNode): string[] {
   const childIds: string[] = [];
   if (typeof props.child === "string") childIds.push(props.child);
   const childrenContainer = props.children as
-    | { explicitList?: unknown }
+    | {
+        explicitList?: unknown;
+        template?: { componentId?: unknown };
+      }
     | undefined;
   const explicitList = childrenContainer?.explicitList;
   if (Array.isArray(explicitList)) {
     for (const id of explicitList)
       if (typeof id === "string") childIds.push(id);
+  }
+  const templateComponentId = childrenContainer?.template?.componentId;
+  if (typeof templateComponentId === "string") {
+    childIds.push(templateComponentId);
   }
   return childIds;
 }

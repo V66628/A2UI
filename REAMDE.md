@@ -79,5 +79,17 @@ treebuild调用时机为每次parser A2UI JSONL协议后，返回组件树，在
 buffer拿到不完整的JSON，需要尝试获取到完整的JSONL后，补全协议，发送给parser解析
 每一个a2ui消息，需要处理为一个完整的可解析的jsonL，
 suerfaceUpdate需要每一个component都处理成独立的jsonL
-28.
+28.帮我生成一个规则，每次改动a2ui-core相关的代码的时候，都必须运行单元测试
+29.Plan 现在需要实现a2ui updateModel以及对应的数据绑定能力。阅读 json 相关协议内容，并且结合现有a2ui-core的实现，设计为a2uisdk以及react-renderer增加对应的数据绑定以及渲染能力。
+30.需要把updateModel在parse时候首先同步到中心store中，后续所有的消费都基于store中的数据模型。
+31.现在先补充对应的测试用例，并构造一个简单的协议来测试整体的parser以及数据协议以及绑定。
+32.
+33.看下A2UI协议，现在需要去实现list，以达到动态渲染dataModel中的数组数据效果
+34，每一个通过list渲染出来的组件需要有自己的唯一ID，先增加单元测试以及对应的最小化mock数据
+35.按照现有的componets实现renderer，以及刚才讨论的empty，参考standard_catalog_definition.json，生成一份现有renderers支持的A2UI标准组件协议
+36.按照现有支持的A2UI协议内容，生成一个简单的购物车列表，并在playground里面增加预览
+ 37.购物车的内容需要使用dataModel，动态渲染
+ 38。client_to_server.json现在需要实现client到server的动态交互过程，这里A2UI 0.8协议不支持本地的数据更新，所以我们需要增加协议描述，当前类型为本地更新的时候，只需要通过在A2UI-react的action trgger里，模拟A2UI的updateModel来实现数据的更新。
+先实现本地状态的更新，构造一个最小实现case，一个按钮可以更新一行文案。
+39.现在需要搭建基础的a2ui-server，server核心接口为接受用户的 输入，并调用agent来生成a2ui协议，先用mock代替agent，先把接口搭建起来，接口的传输使用SSE，需要支持流式并且使用AGUI协议传输
  -->

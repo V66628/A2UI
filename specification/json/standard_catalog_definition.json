@@ -63,7 +63,14 @@
         "usageHint": {
           "type": "string",
           "description": "A hint for the image size and style. One of:\n- `icon`: Small square icon.\n- `avatar`: Circular avatar image.\n- `smallFeature`: Small feature image.\n- `mediumFeature`: Medium feature image.\n- `largeFeature`: Large feature image.\n- `header`: Full-width, full bleed, header image.",
-          "enum": ["icon", "avatar", "smallFeature", "mediumFeature", "largeFeature", "header"]
+          "enum": [
+            "icon",
+            "avatar",
+            "smallFeature",
+            "mediumFeature",
+            "largeFeature",
+            "header"
+          ]
         }
       },
       "required": ["url"]
@@ -225,7 +232,14 @@
         "distribution": {
           "type": "string",
           "description": "Defines the arrangement of children along the main axis (horizontally). This corresponds to the CSS 'justify-content' property.",
-          "enum": ["center", "end", "spaceAround", "spaceBetween", "spaceEvenly", "start"]
+          "enum": [
+            "center",
+            "end",
+            "spaceAround",
+            "spaceBetween",
+            "spaceEvenly",
+            "start"
+          ]
         },
         "alignment": {
           "type": "string",
@@ -269,7 +283,14 @@
         "distribution": {
           "type": "string",
           "description": "Defines the arrangement of children along the main axis (vertically). This corresponds to the CSS 'justify-content' property.",
-          "enum": ["start", "center", "end", "spaceBetween", "spaceAround", "spaceEvenly"]
+          "enum": [
+            "start",
+            "center",
+            "end",
+            "spaceBetween",
+            "spaceAround",
+            "spaceEvenly"
+          ]
         },
         "alignment": {
           "type": "string",
@@ -445,6 +466,37 @@
                 },
                 "required": ["key", "value"]
               }
+            },
+            "localUpdate": {
+              "type": "object",
+              "description": "A2UI 0.8 extension for client-local interaction. When `localUpdate` is present, the action is a LOCAL update instead of a server round-trip: no `userAction` is dispatched. On trigger, the client resolves `value` (a literal string/number/boolean or a `path` reference) and applies it as a simulated `dataModelUpdate` at `path` within the current surface, then re-renders. Use this for purely local state changes (e.g., a button toggling a line of text).",
+              "additionalProperties": false,
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "The data model path to write, relative to the surface root (e.g., '/message')."
+                },
+                "value": {
+                  "type": "object",
+                  "description": "The value to write, resolved at trigger time: a literal (literalString / literalNumber / literalBoolean) or a reference to another data model value ('path').",
+                  "additionalProperties": false,
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    },
+                    "literalString": {
+                      "type": "string"
+                    },
+                    "literalNumber": {
+                      "type": "number"
+                    },
+                    "literalBoolean": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              },
+              "required": ["path", "value"]
             }
           },
           "required": ["name"]

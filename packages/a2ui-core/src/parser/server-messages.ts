@@ -1,15 +1,25 @@
-import type { HydrateNode } from "../store/types.js";
+import type { HydrateNode, Surface } from "../store/types.js";
 import { ErrorType } from "../store/types.js";
 import {
   addA2UIError,
   addParseError,
   createNodeToken,
   ensureSurface,
-  extractEntryValue,
   upsertHydrateNode,
   type ParseContext,
 } from "./context.js";
-import { getMountNotifier, getRenderMap } from "./render-registry.js";
+import { applyDataModelUpdate } from "./data-model.js";
+import {
+  getDataModelBridge,
+  getEngineHooks,
+  getMountNotifier,
+  getRenderMap,
+} from "./render-registry.js";
+import {
+  findProtocolComponent,
+  renderTemplateChildren,
+  type ChildrenTemplate,
+} from "./template.js";
 import type { ServerMessageKey } from "./types.js";
 
 /**
@@ -27,6 +37,57 @@ function createMarkMounted(
     if (!node || node.hasMounted) return;
     node.hasMounted = true;
     getMountNotifier()?.(componentId);
+  };
+}
+
+/**
+ * 构造交互回调（本地写 / userAction 派发）：
+ * 经 createParser 注册的全局 EngineHooks 到达当前 parser 实例。
+ */
+function createInteractionCallbacks(surfaceId: string, componentId: string) {
+  return {
+    writeDataModel: (path: string, value: unknown) =>
+      getEngineHooks()?.commitLocalWrite(surfaceId, path, value),
+    emitUserAction: (name: string, context: Record<string, unknown>) =>
+      getEngineHooks()?.dispatchUserAction(
+        surfaceId,
+        componentId,
+        name,
+        context,
+      ),
+  };
+}
+
+/**
+ * 取渲染所消费的数据模型：注册了数据模型桥（init → 中心 store）时，
+ * 一律从中心 store 读取——store 是唯一数据源；否则回退 ctx surface
+ * （不经 init 的独立 parser 场景，如无桥单测）。
+ */
+function getConsumedDataModel(
+  surface?: Surface,
+): Record<string, unknown> | undefined {
+  if (!surface) return undefined;
+  return getDataModelBridge()?.getDataModel(surface.id) ?? surface.dataModel;
+}
+
+/**
+ * 构造节点的全部 RenderContext 回调：交互回调 + 动态模板子项渲染。
+ * resolveTemplate 用当前（store / ctx）数据模型，按 item 作用域渲染模板。
+ */
+function createContextCallbacks(
+  ctx: ParseContext,
+  surfaceId: string,
+  componentId: string,
+) {
+  return {
+    ...createInteractionCallbacks(surfaceId, componentId),
+    resolveTemplate: (template: ChildrenTemplate) =>
+      renderTemplateChildren(
+        ctx,
+        surfaceId,
+        getConsumedDataModel(ctx.surfaceMap.get(surfaceId)),
+        template,
+      ),
   };
 }
 
@@ -150,45 +211,15 @@ function handleSurfaceUpdate(
       componentId,
       nodeToken: batchNode.nodeToken,
       ownerSurfaceId: surface.id,
-      dataModel: surface.dataModel,
+      dataModel: getConsumedDataModel(surface),
       protocol: rawLine,
       resolveNode: (refId: string) =>
         ctx.nodeMap.get(surface.id)?.get(refId) ?? null,
       hasMounted: batchNode.hasMounted,
       markMounted: createMarkMounted(ctx, surface.id, componentId),
+      ...createContextCallbacks(ctx, surface.id, componentId),
     });
   }
-}
-
-/** 在协议原文中找到指定组件 id 的类型与 props */
-function findProtocolComponent(
-  rawLine: string,
-  componentId: string,
-): { type: string; componentProps: unknown } | null {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(rawLine);
-  } catch {
-    return null;
-  }
-  const body = (
-    parsed as {
-      surfaceUpdate?: {
-        components?: Array<{
-          id: string;
-          component?: Record<string, unknown>;
-        }>;
-      };
-    }
-  ).surfaceUpdate;
-  const item = body?.components?.find((entry) => entry.id === componentId);
-  if (!item || !item.component) return null;
-  const typeKeys = Object.keys(item.component);
-  if (typeKeys.length !== 1) return null;
-  return {
-    type: typeKeys[0],
-    componentProps: item.component[typeKeys[0]],
-  };
 }
 
 /**
@@ -206,12 +237,13 @@ export function rerenderNode(ctx: ParseContext, node: HydrateNode): void {
     componentId: node.componentId,
     nodeToken: node.nodeToken,
     ownerSurfaceId: node.ownerSurfaceId,
-    dataModel: ctx.surfaceMap.get(node.ownerSurfaceId)?.dataModel,
+    dataModel: getConsumedDataModel(ctx.surfaceMap.get(node.ownerSurfaceId)),
     protocol: node.protocol,
     resolveNode: (refId: string) =>
       ctx.nodeMap.get(node.ownerSurfaceId)?.get(refId) ?? null,
     hasMounted: node.hasMounted,
     markMounted: createMarkMounted(ctx, node.ownerSurfaceId, node.componentId),
+    ...createContextCallbacks(ctx, node.ownerSurfaceId, node.componentId),
   });
 }
 
@@ -220,12 +252,12 @@ export function rerenderAllNodes(ctx: ParseContext): void {
   for (const node of ctx.nodeOrder) rerenderNode(ctx, node);
 }
 
-/** dataModelUpdate：构建/合并该 surface 的数据模型 */
+/** dataModelUpdate：构建/替换/深写该 surface 的数据模型 */
 function handleDataModelUpdate(
   body: Record<string, unknown>,
   ctx: ParseContext,
 ): void {
-  const { surfaceId, contents } = body;
+  const { surfaceId, contents, path } = body;
   if (typeof surfaceId !== "string" || !Array.isArray(contents)) {
     addParseError(
       ctx,
@@ -233,20 +265,34 @@ function handleDataModelUpdate(
     );
     return;
   }
+  if (path !== undefined && typeof path !== "string") {
+    addParseError(ctx, "dataModelUpdate 的 path 必须是字符串");
+    return;
+  }
 
-  const surface = ensureSurface(ctx, surfaceId);
-  if (!surface.dataModel) surface.dataModel = {};
-
+  // 非法条目仍记 PARSE_ERROR（applyDataModelUpdate 内会再次跳过它们）
   for (const entry of contents) {
     if (
       typeof entry !== "object" ||
       entry === null ||
-      typeof entry.key !== "string"
+      typeof (entry as { key?: unknown }).key !== "string"
     ) {
-      addParseError(ctx, "dataModelUpdate 的条目必须包含 key");
-      continue;
+      addParseError(ctx, "dataModelUpdate 的条目必须包含字符串 key");
     }
-    surface.dataModel[entry.key] = extractEntryValue(entry);
+  }
+
+  const surface = ensureSurface(ctx, surfaceId);
+
+  // parse 时首先同步到中心 store（经数据模型桥）；随后 ctx 表面引用同一对象，
+  // 本消息后续渲染及其他消费全部基于 store 中的数据模型。
+  // 未注册桥（独立 parser）时回退为直接写 ctx surface。
+  const bridge = getDataModelBridge();
+  if (bridge) {
+    bridge.ensureSurface(surfaceId);
+    bridge.applyDataModelUpdate(surfaceId, path, contents);
+    surface.dataModel = bridge.getDataModel(surfaceId);
+  } else {
+    applyDataModelUpdate(surface, path, contents);
   }
 }
 
