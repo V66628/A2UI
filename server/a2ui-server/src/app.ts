@@ -3,9 +3,10 @@ import bodyParser from "koa-bodyparser";
 import Router from "@koa/router";
 import { randomUUID } from "node:crypto";
 import { MockAgent } from "./agent/mock-agent";
-import type { A2UIAgent } from "./agent/types";
+import type { AgentImageInput, A2UIAgent } from "./agent/types";
 import { encodeAgUI } from "./agui/encoder";
 import type { AgUIEvent } from "./agui/events";
+import { streamChat, type ChatMessage, type ChatStreamer } from "./llm/chat";
 import { createSSEStream } from "./sse";
 
 /**
@@ -54,15 +55,92 @@ function resolveUserInput(body: unknown): string | undefined {
 }
 
 /**
- * 创建 Koa 应用（agent 可注入，便于测试替换 mock）。
+ * 从请求体解析多模态图片输入：
+ *   images: [{ url } | { dataUrl } | { base64, mediaType? }]
+ * base64 归一化为 data URL；非法条目跳过；无有效图片返回 undefined。
+ */
+function resolveImages(
+  body: Record<string, unknown>,
+): AgentImageInput[] | undefined {
+  if (!Array.isArray(body.images)) return undefined;
+
+  const images: AgentImageInput[] = [];
+  for (const rawItem of body.images) {
+    if (typeof rawItem !== "object" || rawItem === null) continue;
+    const item = rawItem as Record<string, unknown>;
+
+    if (typeof item.url === "string" && item.url.trim()) {
+      images.push({ url: item.url.trim() });
+    } else if (typeof item.dataUrl === "string" && item.dataUrl.trim()) {
+      images.push({ url: item.dataUrl.trim() });
+    } else if (typeof item.base64 === "string" && item.base64.trim()) {
+      const mediaType =
+        typeof item.mediaType === "string" && item.mediaType.trim()
+          ? item.mediaType.trim()
+          : "image/png";
+      images.push({
+        url: `data:${mediaType};base64,${item.base64.trim()}`,
+      });
+    }
+  }
+
+  return images.length > 0 ? images : undefined;
+}
+
+/** 允许的对话角色 */
+const CHAT_ROLES = ["system", "developer", "user", "assistant"] as const;
+
+/**
+ * 从请求体解析模型对话消息：
+ *   优先使用 messages 数组（每项须有合法 role 与字符串 content）；
+ *   否则使用 input 单条 user 消息。均不合法返回 undefined。
+ */
+function resolveChatMessages(body: unknown): ChatMessage[] | undefined {
+  if (typeof body !== "object" || body === null) return undefined;
+  const record = body as Record<string, unknown>;
+
+  if (Array.isArray(record.messages)) {
+    const messages: ChatMessage[] = [];
+    for (const entry of record.messages) {
+      if (typeof entry !== "object" || entry === null) continue;
+      const item = entry as Record<string, unknown>;
+      if (
+        typeof item.role === "string" &&
+        (CHAT_ROLES as readonly string[]).includes(item.role) &&
+        typeof item.content === "string"
+      ) {
+        messages.push({
+          role: item.role as ChatMessage["role"],
+          content: item.content,
+        });
+      }
+    }
+    if (messages.length > 0) return messages;
+  }
+
+  if (typeof record.input === "string" && record.input.trim() !== "") {
+    return [{ role: "user", content: record.input }];
+  }
+
+  return undefined;
+}
+
+/**
+ * 创建 Koa 应用（agent / chatStreamer 可注入，便于测试替换 mock）。
  *
  * 路由：
  *   GET  /health  健康检查
  *   POST /        输入文本 → AG-UI 事件流
  *                  ?stream=true（默认）SSE 流式传输
  *                  ?stream=false      收集全部事件一次性返回 JSON
+ *   POST /chat    纯模型对话（OpenAI 兼容 / oneapi）
+ *                  ?stream=true（默认）SSE 逐帧 {delta} … {done:true}
+ *                  ?stream=false      一次性 {reply}
  */
-export function createApp(agent: A2UIAgent = new MockAgent()): Koa {
+export function createApp(
+  agent: A2UIAgent = new MockAgent(),
+  chatStreamer: ChatStreamer = streamChat,
+): Koa {
   const app = new Koa();
   app.proxy = true;
 
@@ -102,8 +180,9 @@ export function createApp(agent: A2UIAgent = new MockAgent()): Koa {
     const threadId =
       typeof body.threadId === "string" ? body.threadId : randomUUID();
     const runId = typeof body.runId === "string" ? body.runId : randomUUID();
+    const images = resolveImages(body);
 
-    const a2uiStream = agent.run({ input, threadId, runId });
+    const a2uiStream = agent.run({ input, images, threadId, runId });
     const aguiStream = encodeAgUI(a2uiStream, { threadId, runId, input });
 
     // 默认 SSE 流式；?stream=false 时一次性 JSON 返回
@@ -120,6 +199,51 @@ export function createApp(agent: A2UIAgent = new MockAgent()): Koa {
     const events: AgUIEvent[] = [];
     for await (const event of aguiStream) events.push(event);
     ctx.body = { threadId, runId, events };
+  });
+
+  // ---- 纯模型对话接口 ----
+  router.post("/chat", async (ctx) => {
+    const messages = resolveChatMessages(ctx.request.body);
+    if (!messages) {
+      ctx.status = 400;
+      ctx.body = {
+        error: "Missing chat input: provide `input` or non-empty `messages`.",
+      };
+      return;
+    }
+
+    const body = (ctx.request.body ?? {}) as Record<string, unknown>;
+    const model = typeof body.model === "string" ? body.model : undefined;
+
+    // 默认 SSE：{delta} × N → {done:true}；异常以 {error} 收尾
+    if (resolveStreamFlag(ctx)) {
+      const sse = createSSEStream(ctx);
+      try {
+        for await (const delta of chatStreamer(messages, { model })) {
+          if (sse.closed) return;
+          sse.sendData({ delta });
+        }
+        if (!sse.closed) {
+          sse.sendData({ done: true });
+          sse.end();
+        }
+      } catch (error) {
+        if (!sse.closed) {
+          sse.sendData({
+            error: error instanceof Error ? error.message : String(error),
+          });
+          sse.end();
+        }
+      }
+      return;
+    }
+
+    // ?stream=false：聚合后一次性 JSON 返回
+    let reply = "";
+    for await (const delta of chatStreamer(messages, { model })) {
+      reply += delta;
+    }
+    ctx.body = { reply };
   });
 
   app.use(router.routes());

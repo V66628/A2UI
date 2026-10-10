@@ -1,6 +1,23 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type CSSProperties,
+} from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { Button, Empty, Modal, Space, Statistic, Tag } from "antd";
+import {
+  Button,
+  Empty,
+  Input,
+  Modal,
+  Select,
+  Space,
+  Spin,
+  Statistic,
+  Switch,
+  Tag,
+} from "antd";
 import {
   clearOutgoingActions,
   createJsonStreamBuffer,
@@ -17,9 +34,10 @@ import {
   type UserAction,
 } from "@a2ui/core";
 import {
-  fetchNonSSE,
   loadMock,
   resetForStreaming,
+  streamAgentRun,
+  streamChatReply,
   type MockEntry,
 } from "./main";
 
@@ -106,6 +124,34 @@ function ErrorItem({ errorId, error }: { errorId: string; error: A2UIError }) {
   );
 }
 
+/** 对话消息（用户气泡 / 带序号的 Agent 完成消息） */
+interface ChatMessage {
+  id: string;
+  role: "user" | "agent";
+  text: string;
+  /** Agent 消息的递增序号（消息左侧的数字徽标） */
+  agentNumber?: number;
+  /** 接口调用失败时以红色展示 */
+  error?: boolean;
+  /** "chat" = 纯模型对话回复（普通字体）；缺省 = A2UI agent 完成摘要（等宽字体） */
+  kind?: "chat";
+  /**
+   * A2UI agent 调用阶段：
+   *   generating = 模型生成中（RUN_STARTED，等待协议）
+   *   rendering  = 协议渲染中（已开始收到 CUSTOM/a2ui，增量解析渲染）
+   *   done       = 已完成（RUN_FINISHED）
+   * 失败消息不携带 phase，按红色错误消息渲染。
+   */
+  phase?: "generating" | "rendering" | "done";
+}
+
+const smallGrayText: CSSProperties = {
+  margin: "6px 0 0",
+  fontSize: 12,
+  lineHeight: 1.6,
+  color: "#8c8c8c",
+};
+
 interface AppProps {
   catalog: MockEntry[];
   initialMockId: string;
@@ -127,6 +173,7 @@ function App({ catalog, initialMockId }: AppProps) {
   const [storeOpen, setStoreOpen] = useState(false);
   const [errorOpen, setErrorOpen] = useState(false);
   const [actionOpen, setActionOpen] = useState(false);
+  const [jsonOpen, setJsonOpen] = useState(false);
 
   // outgoing userAction 队列（init 时随新会话清空）
   const outgoingActions = useSyncExternalStore(
@@ -142,12 +189,15 @@ function App({ catalog, initialMockId }: AppProps) {
     total: number;
   } | null>(null);
 
-  // ---- 非 SSE 接口调用状态 ----
-  const [nonSSELoading, setNonSSELoading] = useState(false);
-  const [nonSSEStatus, setNonSSEStatus] = useState<{
-    ok: boolean;
-    text: string;
-  } | null>(null);
+  // ---- 对话状态 ----
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [draft, setDraft] = useState("");
+  /** 是否正在等待接口响应（发送键 loading、输入框禁用） */
+  const [sending, setSending] = useState(false);
+  /** 模型对话模式开关：开启后发送仅测试模型对话，不渲染 A2UI */
+  const [chatMode, setChatMode] = useState(false);
+  const agentCountRef = useRef(0);
+  const messageListRef = useRef<HTMLDivElement>(null);
 
   /** 卸载时确保定时器被清理 */
   useEffect(() => {
@@ -155,6 +205,12 @@ function App({ catalog, initialMockId }: AppProps) {
       if (timerRef.current) clearInterval(timerRef.current);
     };
   }, []);
+
+  // 新消息后自动滚到底部
+  useEffect(() => {
+    const el = messageListRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [chatMessages]);
 
   /** 独立 React root：ref 持久，StrictMode 假卸载后复用，避免同容器二次 createRoot */
   const independentRootRef = useRef<Root | null>(null);
@@ -226,7 +282,7 @@ function App({ catalog, initialMockId }: AppProps) {
   };
 
   /**
-   * 开始流式模拟：
+   * 开始本地模拟流：
    * 重置为空 store（复用已注入的渲染函数）→ 创建有状态 parser → 定时逐条推送；
    * 每条消息 treebuild 后由 SDK 内部自动渲染，此处仅同步 store 供面板查看。
    */
@@ -286,7 +342,7 @@ function App({ catalog, initialMockId }: AppProps) {
     setIsStreaming(false);
   };
 
-  /** 点击按钮切换 mock：若正在流式推送则先停止；渲染由 SDK 自动驱动 */
+  /** 场景下拉切换：若正在流式推送则先停止；渲染由 SDK 自动驱动 */
   const handleSelectMock = (id: string) => {
     if (id === activeMockId) return;
     invalidateLoops();
@@ -299,35 +355,113 @@ function App({ catalog, initialMockId }: AppProps) {
   };
 
   /**
-   * 调用 a2ui-server 非 SSE 接口（POST /?stream=false）：
-   * 停止任何流式推送 → 请求一次性 JSON 响应 → 解出 A2UI 消息重建 parser 渲染。
+   * 发送对话消息：以用户文本调用 a2ui-server 的 SSE 流式接口（POST /）——
+   * 先回显用户气泡并停止任何本地流式推送，同时立即插入一条带序号的
+   * 「模型生成中」占位 Agent 消息；随后随事件流推进状态：
+   *   模型生成中（RUN_STARTED）→ 协议渲染中（CUSTOM/a2ui 增量到达）
+   *   → Agent 完成（RUN_FINISHED，含 threadId / 协议条数摘要）；
+   * RUN_ERROR 或网络失败则将该消息转为红色错误展示。
    */
-  const handleFetchNonSSE = async () => {
+  const sendMessage = async () => {
+    const text = draft.trim();
+    if (!text || sending) return;
+    setDraft("");
+    setChatMessages((prev) => [
+      ...prev,
+      { id: crypto.randomUUID(), role: "user", text },
+    ]);
+
+    // ---- 模型对话模式：仅测试模型，不触碰 parser / A2UI 预览 ----
+    if (chatMode) {
+      const replyId = crypto.randomUUID();
+      setChatMessages((prev) => [
+        ...prev,
+        { id: replyId, role: "agent", kind: "chat", text: "" },
+      ]);
+      setSending(true);
+      try {
+        await streamChatReply(text, (delta) =>
+          setChatMessages((prev) =>
+            prev.map((message) =>
+              message.id === replyId
+                ? { ...message, text: message.text + delta }
+                : message,
+            ),
+          ),
+        );
+      } catch (error) {
+        setChatMessages((prev) =>
+          prev.map((message) =>
+            message.id === replyId
+              ? {
+                  ...message,
+                  error: true,
+                  text: `模型调用失败：${error instanceof Error ? error.message : String(error)}`,
+                }
+              : message,
+          ),
+        );
+      } finally {
+        setSending(false);
+      }
+      return;
+    }
+
     invalidateLoops();
     stopStreamTimer();
     setIsStreaming(false);
     setStreamProgress(null);
-    setNonSSELoading(true);
-    setNonSSEStatus(null);
+    setSending(true);
+
+    // 序号在发起时即分配，占位消息从「模型生成中」开始推进
+    agentCountRef.current += 1;
+    const agentNumber = agentCountRef.current;
+    const agentMessageId = crypto.randomUUID();
+    setChatMessages((prev) => [
+      ...prev,
+      {
+        id: agentMessageId,
+        role: "agent",
+        agentNumber,
+        phase: "generating",
+        text: "模型生成中…",
+      },
+    ]);
+
+    const patchAgent = (patch: Partial<ChatMessage>) => {
+      setChatMessages((prev) =>
+        prev.map((message) =>
+          message.id === agentMessageId ? { ...message, ...patch } : message,
+        ),
+      );
+    };
 
     try {
-      const result = await fetchNonSSE(
-        "Request from playground: build UI (non-SSE)",
-        renderTreeRef.current,
-      );
+      const result = await streamAgentRun(text, renderTreeRef.current, {
+        onStart: () => patchAgent({ phase: "generating", text: "模型生成中…" }),
+        onProtocol: ({ received }) =>
+          patchAgent({
+            phase: "rendering",
+            text: `协议渲染中…（已接收 ${received} 条协议消息）`,
+          }),
+      });
       resetStoreCache();
-      setActiveMockId("server-non-sse");
-      setNonSSEStatus({
-        ok: true,
-        text: `成功 · ${result.messageCount} 条 A2UI 消息 · thread ${result.threadId}`,
+      const summary = JSON.stringify({
+        threadId: result.threadId,
+        a2uiMessageCount: result.messageCount,
+      });
+      patchAgent({
+        phase: "done",
+        text: `Agent 完成: (${summary})`,
       });
     } catch (error) {
-      setNonSSEStatus({
-        ok: false,
-        text: `失败：${error instanceof Error ? error.message : String(error)}（请确认 a2ui-server 已在 8787 端口启动）`,
+      patchAgent({
+        phase: undefined,
+        error: true,
+        text: `接口调用失败：${error instanceof Error ? error.message : String(error)}（请确认 a2ui-server 已在 8787 端口启动）`,
       });
     } finally {
-      setNonSSELoading(false);
+      setSending(false);
     }
   };
 
@@ -353,109 +487,353 @@ function App({ catalog, initialMockId }: AppProps) {
   }
 
   return (
-    <div style={{ padding: 24, fontFamily: "sans-serif" }}>
-      <h1>A2UI Playground</h1>
-
-      <h2>选择 mock 数据</h2>
-      <Space wrap data-testid="mock-switcher">
-        {catalog.map((entry) => (
-          <Button
-            key={entry.id}
-            data-testid={`mock-button-${entry.id}`}
-            type={entry.id === activeMockId ? "primary" : "default"}
-            onClick={() => handleSelectMock(entry.id)}
-          >
-            {entry.label}
-          </Button>
-        ))}
-      </Space>
-
-      <div data-testid="stream-controls" style={{ marginTop: 16 }}>
-        <Space>
-          <Button
-            data-testid="start-stream"
-            type="primary"
-            ghost
-            disabled={isStreaming}
-            onClick={startStream}
-          >
-            ▶ 流式分片推送（50字符/50ms）
-          </Button>
-          {isStreaming && (
-            <Button data-testid="stop-stream" danger onClick={stopStream}>
-              ■ 停止
-            </Button>
-          )}
-          {streamProgress && (
-            <Tag
-              data-testid="stream-progress"
-              color={isStreaming ? "processing" : "success"}
-            >
-              已推送 {streamProgress.current} / {streamProgress.total} 片
-            </Tag>
-          )}
-        </Space>
-      </div>
-
-      <div data-testid="server-controls" style={{ marginTop: 16 }}>
-        <Space>
-          <Button
-            data-testid="fetch-non-sse"
-            onClick={handleFetchNonSSE}
-            loading={nonSSELoading}
-          >
-            调用非 SSE 接口（POST /?stream=false）
-          </Button>
-          {nonSSEStatus && (
-            <Tag
-              data-testid="non-sse-status"
-              color={nonSSEStatus.ok ? "success" : "error"}
-            >
-              {nonSSEStatus.text}
-            </Tag>
-          )}
-        </Space>
-      </div>
-
-      <div style={{ marginTop: 24 }}>
-        <Button
-          type="primary"
-          data-testid="show-store"
-          onClick={() => setStoreOpen(true)}
-        >
-          查看 store
-        </Button>
-        <Button
-          data-testid="show-errors"
-          onClick={() => setErrorOpen(true)}
-          style={{ marginLeft: 12 }}
-        >
-          查看错误（{errorEntries.length}）
-        </Button>
-        <Button
-          data-testid="show-useractions"
-          onClick={() => setActionOpen(true)}
-          style={{ marginLeft: 12 }}
-        >
-          查看 userAction（{outgoingActions.length}）
-        </Button>
-      </div>
-
-      <h2 style={{ marginTop: 24 }}>
-        渲染预览（SDK 内部 treebuild 后驱动）：{activeMockId}
-      </h2>
-      <div
-        ref={previewHostRef}
-        data-testid="render-preview"
+    <div
+      style={{
+        height: "100vh",
+        display: "flex",
+        background: "#fff",
+        fontFamily:
+          '-apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+      }}
+    >
+      {/* ============ 左栏：Agent 对话 ============ */}
+      <aside
+        data-testid="agent-panel"
         style={{
-          padding: 16,
-          border: "1px solid #ddd",
-          borderRadius: 8,
+          width: 300,
+          flexShrink: 0,
+          borderRight: "1px solid #e8e8e8",
+          display: "flex",
+          flexDirection: "column",
+          minHeight: 0,
         }}
-      />
+      >
+        <div style={{ padding: "20px 20px 12px" }}>
+          <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>
+            Agent 对话
+          </h2>
+          <p style={smallGrayText}>
+            右侧为 A2UI 预览；服务端每整段 JSONL 协议切片为 CUSTOM / a2ui.jsonl
+            chunk 流式推送。
+          </p>
 
+          <div
+            style={{
+              marginTop: 18,
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+            }}
+          >
+            <Switch
+              size="small"
+              data-testid="chat-mode-switch"
+              checked={chatMode}
+              onChange={setChatMode}
+            />
+            <span style={{ fontSize: 13, fontWeight: 700 }}>
+              模型对话模式（仅测模型）
+            </span>
+          </div>
+          <p style={smallGrayText}>
+            开启后，下方发送将直接调用模型对话接口（POST
+            /chat），流式展示模型回复，不渲染 A2UI。
+          </p>
+
+          <div style={{ marginTop: 14, fontSize: 13, fontWeight: 700 }}>
+            本地模拟流 · 场景
+          </div>
+          <p style={smallGrayText}>
+            通过 /api/agent 时服务端每次随机选合适场景 mock（不含
+            Text/Image/Icon/Button 等用于演示）；「本地模拟流」使用下方选择。
+          </p>
+
+          <div data-testid="mock-switcher" style={{ marginTop: 10 }}>
+            <Select
+              data-testid="mock-scenario-select"
+              style={{ width: "100%" }}
+              value={activeMockId}
+              options={catalog.map((entry) => ({
+                value: entry.id,
+                label: entry.label,
+              }))}
+              onChange={handleSelectMock}
+            />
+          </div>
+
+          {/* 次级能力：非 SSE 接口 + userAction 查看 */}
+          <div
+            style={{
+              width: "100%",
+              marginTop: 10,
+              display: "flex",
+              flexDirection: "column",
+              gap: 4,
+            }}
+          >
+            <Button
+              block
+              size="small"
+              type="text"
+              data-testid="show-useractions"
+              onClick={() => setActionOpen(true)}
+            >
+              查看 userAction（{outgoingActions.length}）
+            </Button>
+          </div>
+        </div>
+
+        {/* 消息列表 */}
+        <div
+          ref={messageListRef}
+          data-testid="chat-messages"
+          style={{
+            flex: 1,
+            overflowY: "auto",
+            padding: "4px 16px",
+            minHeight: 0,
+          }}
+        >
+          {chatMessages.map((message) =>
+            message.role === "user" ? (
+              <div
+                key={message.id}
+                style={{
+                  display: "flex",
+                  justifyContent: "flex-end",
+                  padding: "8px 0",
+                }}
+              >
+                <div
+                  style={{
+                    maxWidth: "85%",
+                    background: "#f5f5f5",
+                    borderRadius: 8,
+                    padding: "6px 10px",
+                    fontSize: 12,
+                    lineHeight: 1.6,
+                    color: "#262626",
+                    whiteSpace: "pre-wrap",
+                    wordBreak: "break-word",
+                  }}
+                >
+                  {message.text}
+                </div>
+              </div>
+            ) : (
+              <div
+                key={message.id}
+                style={{
+                  display: "flex",
+                  gap: 8,
+                  padding: "10px 0",
+                  alignItems: "flex-start",
+                }}
+              >
+                <div
+                  style={{
+                    width: 24,
+                    height: 24,
+                    borderRadius: 6,
+                    background: message.error
+                      ? "#fff2f0"
+                      : message.kind === "chat"
+                        ? "#f6ffed"
+                        : "#f0f5ff",
+                    color: message.error
+                      ? "#ff4d4f"
+                      : message.kind === "chat"
+                        ? "#52c41a"
+                        : "#1677ff",
+                    fontSize: 12,
+                    fontWeight: 600,
+                    flexShrink: 0,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  {message.kind === "chat" ? (
+                    "AI"
+                  ) : message.phase === "generating" ||
+                    message.phase === "rendering" ? (
+                    <Spin
+                      size="small"
+                      data-testid={`agent-spinner-${message.phase}`}
+                    />
+                  ) : (
+                    message.agentNumber
+                  )}
+                </div>
+                <div
+                  data-testid={
+                    message.phase === "generating"
+                      ? "agent-phase-generating"
+                      : message.phase === "rendering"
+                        ? "agent-phase-rendering"
+                        : undefined
+                  }
+                  style={{
+                    fontFamily:
+                      message.kind === "chat" ? "inherit" : "monospace",
+                    fontSize: message.kind === "chat" ? 13 : 12,
+                    lineHeight: 1.6,
+                    color: message.error
+                      ? "#ff4d4f"
+                      : message.kind === "chat"
+                        ? "#262626"
+                        : "#595959",
+                    whiteSpace: "pre-wrap",
+                    wordBreak: "break-word",
+                  }}
+                >
+                  {message.kind === "chat" && !message.text && !message.error
+                    ? "…"
+                    : message.text}
+                </div>
+              </div>
+            ),
+          )}
+        </div>
+
+        {/* 输入区 */}
+        <div
+          style={{
+            borderTop: "1px solid #e8e8e8",
+            padding: 12,
+          }}
+        >
+          <Input.TextArea
+            data-testid="chat-input"
+            value={draft}
+            disabled={sending}
+            autoSize={{ minRows: 2, maxRows: 4 }}
+            placeholder="输入消息后按发送调用接口（Enter 发送，Shift+Enter 换行）"
+            onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.shiftKey) {
+                event.preventDefault();
+                sendMessage();
+              }
+            }}
+          />
+          <div
+            style={{
+              marginTop: 8,
+              display: "flex",
+              justifyContent: "flex-end",
+            }}
+          >
+            <Button
+              type="primary"
+              data-testid="chat-send"
+              loading={sending}
+              onClick={sendMessage}
+            >
+              发送
+            </Button>
+          </div>
+        </div>
+      </aside>
+
+      {/* ============ 右栏：A2UI Playground ============ */}
+      <main
+        style={{
+          flex: 1,
+          display: "flex",
+          flexDirection: "column",
+          minWidth: 0,
+          minHeight: 0,
+        }}
+      >
+        <header
+          style={{
+            padding: "16px 24px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+          }}
+        >
+          <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700 }}>
+            A2UI Playground
+          </h1>
+          <Space size={8}>
+            <Button
+              type="primary"
+              data-testid="show-store"
+              onClick={() => setStoreOpen(true)}
+            >
+              View Store
+            </Button>
+            <Button
+              danger
+              data-testid="show-errors"
+              onClick={() => setErrorOpen(true)}
+            >
+              View Errors
+              {errorEntries.length > 0 ? ` (${errorEntries.length})` : ""}
+            </Button>
+            <Button
+              data-testid="show-a2ui-json"
+              onClick={() => setJsonOpen(true)}
+            >
+              View A2UI JSON
+            </Button>
+            {isStreaming ? (
+              <>
+                <Button data-testid="stop-stream" danger onClick={stopStream}>
+                  停止
+                </Button>
+                {streamProgress && (
+                  <Tag data-testid="stream-progress" color="processing">
+                    {streamProgress.current} / {streamProgress.total}
+                  </Tag>
+                )}
+              </>
+            ) : (
+              <Button data-testid="start-stream" onClick={startStream}>
+                本地模拟流
+              </Button>
+            )}
+          </Space>
+        </header>
+
+        <div
+          style={{
+            flex: 1,
+            minHeight: 0,
+            padding: "0 24px 24px",
+            display: "flex",
+            flexDirection: "column",
+          }}
+        >
+          <div
+            style={{
+              fontSize: 14,
+              fontWeight: 700,
+              margin: "0 0 12px",
+            }}
+          >
+            预览区
+          </div>
+          <div
+            ref={previewHostRef}
+            data-testid="render-preview"
+            style={{
+              flex: 1,
+              minHeight: 0,
+              padding: 20,
+              border: "1px solid #e8e8e8",
+              borderRadius: 8,
+              overflow: "auto",
+            }}
+          />
+        </div>
+      </main>
+
+      {/* ============ 弹窗 ============ */}
       <Modal
-        title="store 内容"
+        title="Store"
         open={storeOpen}
         onOk={() => setStoreOpen(false)}
         onCancel={() => setStoreOpen(false)}
@@ -498,6 +876,33 @@ function App({ catalog, initialMockId }: AppProps) {
           }}
         >
           {JSON.stringify(state, null, 2)}
+        </pre>
+      </Modal>
+
+      <Modal
+        title="A2UI JSON"
+        open={jsonOpen}
+        onOk={() => setJsonOpen(false)}
+        onCancel={() => setJsonOpen(false)}
+        width={760}
+        okText="关闭"
+        cancelButtonProps={{ style: { display: "none" } }}
+      >
+        <pre
+          data-testid="a2ui-json-content"
+          style={{
+            maxHeight: "60vh",
+            overflow: "auto",
+            padding: 16,
+            background: "#f5f5f5",
+            border: "1px solid #ddd",
+            borderRadius: 8,
+            fontSize: 12,
+            whiteSpace: "pre-wrap",
+            wordBreak: "break-word",
+          }}
+        >
+          {state.rawProtocol || "// (empty)"}
         </pre>
       </Modal>
 

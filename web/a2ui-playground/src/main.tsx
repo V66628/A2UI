@@ -7,6 +7,7 @@ import {
   type TreeRenderFunction,
 } from "@a2ui/core";
 import { renderMap } from "@a2ui/react";
+import "./index.css";
 import App from "./App";
 
 /** mock TS 模块形态：导出 A2UI 消息数组 */
@@ -89,11 +90,11 @@ export function loadMock(
 /** a2ui-server 默认地址 */
 const SERVER_BASE_URL = "http://localhost:8787";
 
-/** 非 SSE 接口调用结果摘要 */
-export interface NonSSEResult {
+/** Agent 运行结果摘要 */
+export interface AgentRunResult {
   threadId: string;
   runId: string;
-  /** 从事件中解出的 A2UI 消息条数 */
+  /** 从事件流中解出的 A2UI 协议消息条数 */
   messageCount: number;
 }
 
@@ -103,18 +104,38 @@ interface AgUIEventLike {
   name?: string;
   value?: unknown;
   message?: string;
+  threadId?: string;
+  runId?: string;
+}
+
+/** streamAgentRun 的阶段回调（驱动 UI 的「生成中 / 渲染中」状态） */
+export interface AgentRunHooks {
+  /** RUN_STARTED：运行已开始，模型开始生成协议 */
+  onStart?: (info: { threadId: string; runId: string }) => void;
+  /** 每收到一条 CUSTOM/a2ui 协议消息（已增量解析并渲染） */
+  onProtocol?: (info: { received: number }) => void;
 }
 
 /**
- * 调用 a2ui-server 的非 SSE 接口（POST /?stream=false）：
- * server 一次性返回 {threadId, runId, events}，从中取出
- * CUSTOM(name="a2ui") 的 value（A2UI 协议消息），重建本地 parser 渲染。
+ * 调用 a2ui-server 的 SSE 流式接口（POST /，默认 stream=true）：
+ * 先重置出全新空 store 与 parser；随后逐帧消费 AG-UI 事件：
+ *   RUN_STARTED               → hooks.onStart
+ *   CUSTOM(name="a2ui")       → 将 value 作为一行协议喂给 parser 增量解析，
+ *                                同步 store（SDK 同时自动重渲染预览）→ hooks.onProtocol
+ *   RUN_ERROR                 → 抛错（由调用方展示红色失败状态）
+ *   RUN_FINISHED              → 正常结束，返回摘要
  */
-export async function fetchNonSSE(
+export async function streamAgentRun(
   input: string,
   renderTree: TreeRenderFunction | null,
-): Promise<NonSSEResult> {
-  const response = await fetch(`${SERVER_BASE_URL}/?stream=false`, {
+  hooks: AgentRunHooks = {},
+): Promise<AgentRunResult> {
+  resetForStreaming(renderTree);
+  const parser = createParser();
+  let consumedRaw = "";
+  let a2uiCount = 0;
+
+  const response = await fetch(`${SERVER_BASE_URL}/`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ input }),
@@ -122,29 +143,112 @@ export async function fetchNonSSE(
   if (!response.ok) {
     throw new Error(`server responded ${response.status}`);
   }
+  if (!response.body) throw new Error("server returned no stream");
 
-  const payload = (await response.json()) as {
-    threadId: string;
-    runId: string;
-    events: AgUIEventLike[];
-  };
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let threadId = "";
+  let runId = "";
 
-  const lastEvent = payload.events[payload.events.length - 1];
-  if (lastEvent?.type === "RUN_ERROR") {
-    throw new Error(lastEvent.message ?? "server RUN_ERROR");
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const frames = buffer.split("\n\n");
+    buffer = frames.pop() ?? "";
+
+    for (const frame of frames) {
+      const line = frame
+        .split("\n")
+        .find((entry) => entry.startsWith("data: "));
+      if (!line) continue;
+      const event = JSON.parse(line.slice(6)) as AgUIEventLike;
+
+      if (event.type === "RUN_STARTED") {
+        threadId = event.threadId ?? "";
+        runId = event.runId ?? "";
+        hooks.onStart?.({ threadId, runId });
+      } else if (event.type === "CUSTOM" && event.name === "a2ui") {
+        const protocolLine = JSON.stringify(event.value);
+        consumedRaw = consumedRaw
+          ? `${consumedRaw}\n${protocolLine}`
+          : protocolLine;
+        const result = parser.parse(protocolLine);
+        a2uiCount += 1;
+        getA2UIStore().setState({
+          rawProtocol: consumedRaw,
+          surfaceMap: Object.fromEntries(
+            result.surfaces.map((surface) => [surface.id, surface]),
+          ),
+          hydrateNodeMap: Object.fromEntries(
+            result.hydrateNodes.map((node) => [node.componentId, node]),
+          ),
+          errorMap: Object.fromEntries(
+            result.errors.map((error, index) => [
+              `a2ui-error-${index}`,
+              error,
+            ]),
+          ),
+        });
+        hooks.onProtocol?.({ received: a2uiCount });
+      } else if (event.type === "RUN_ERROR") {
+        throw new Error(event.message ?? "server RUN_ERROR");
+      } else if (event.type === "RUN_FINISHED") {
+        threadId = event.threadId ?? threadId;
+        runId = event.runId ?? runId;
+      }
+    }
   }
 
-  const lines = payload.events
-    .filter((event) => event.type === "CUSTOM" && event.name === "a2ui")
-    .map((event) => JSON.stringify(event.value));
+  return { threadId, runId, messageCount: a2uiCount };
+}
 
-  ingestProtocolLines(lines, renderTree);
+/**
+ * 模型对话：调用 POST /chat（SSE 流式）：
+ * 每收到 {delta} 帧回调 onDelta 追加文本；{done:true} 正常结束；
+ * {error} 帧（或 HTTP 非 2xx）抛错。
+ */
+export async function streamChatReply(
+  input: string,
+  onDelta: (delta: string) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const response = await fetch(`${SERVER_BASE_URL}/chat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ input }),
+    signal,
+  });
+  if (!response.ok) {
+    throw new Error(`server responded ${response.status}`);
+  }
+  if (!response.body) throw new Error("server returned no stream");
 
-  return {
-    threadId: payload.threadId,
-    runId: payload.runId,
-    messageCount: lines.length,
-  };
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const frames = buffer.split("\n\n");
+    buffer = frames.pop() ?? "";
+    for (const frame of frames) {
+      const line = frame
+        .split("\n")
+        .find((entry) => entry.startsWith("data: "));
+      if (!line) continue;
+      const payload = JSON.parse(line.slice(6)) as {
+        delta?: string;
+        done?: boolean;
+        error?: string;
+      };
+      if (payload.error) throw new Error(payload.error);
+      if (payload.delta) onDelta(payload.delta);
+    }
+  }
 }
 
 /**
