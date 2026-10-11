@@ -1,11 +1,14 @@
 import {
   useEffect,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
   type CSSProperties,
+  type MouseEvent as ReactMouseEvent,
 } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { PictureOutlined, CloseOutlined } from "@ant-design/icons";
 import {
   Button,
   Empty,
@@ -17,6 +20,7 @@ import {
   Statistic,
   Switch,
   Tag,
+  Tooltip,
 } from "antd";
 import {
   clearOutgoingActions,
@@ -34,12 +38,16 @@ import {
   type UserAction,
 } from "@a2ui/core";
 import {
+  createAgentSession,
   loadMock,
   resetForStreaming,
-  streamAgentRun,
   streamChatReply,
+  type AgentImage,
+  type AgentSession,
   type MockEntry,
 } from "./main";
+import { Welcome } from "./Welcome";
+import { checkProtocol } from "./specCompliance";
 
 /** 流式模拟：每次推送的字符长度 */
 const STREAM_CHUNK_SIZE = 50;
@@ -129,6 +137,8 @@ interface ChatMessage {
   id: string;
   role: "user" | "agent";
   text: string;
+  /** 用户消息附带的参考图片（data URL），多模态 */
+  images?: AgentImage[];
   /** Agent 消息的递增序号（消息左侧的数字徽标） */
   agentNumber?: number;
   /** 接口调用失败时以红色展示 */
@@ -196,8 +206,17 @@ function App({ catalog, initialMockId }: AppProps) {
   const [sending, setSending] = useState(false);
   /** 模型对话模式开关：开启后发送仅测试模型对话，不渲染 A2UI */
   const [chatMode, setChatMode] = useState(false);
+  /**
+   * A2UI 多轮会话：首轮发送时懒创建（重置 store、分配 threadId），
+   * 后续发送复用，支持基于现有界面的连续微调；切换 mock 时丢弃。
+   */
+  const agentSessionRef = useRef<AgentSession | null>(null);
   const agentCountRef = useRef(0);
   const messageListRef = useRef<HTMLDivElement>(null);
+  /** 待发送的参考图片（data URL），发送后清空 */
+  const [pendingImages, setPendingImages] = useState<AgentImage[]>([]);
+  /** 隐藏的图片选择 input */
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   /** 卸载时确保定时器被清理 */
   useEffect(() => {
@@ -217,9 +236,9 @@ function App({ catalog, initialMockId }: AppProps) {
   const pendingUnmountRef = useRef(false);
 
   /**
-   * 挂载时建立独立 React root 与组件树渲染函数，
-   * 经 loadMock → init 注入 SDK；此后每次 parse 完成 treebuild，
-   * SDK 内部自动调用渲染函数，组件树无需外层 App 持有或透传。
+   * 挂载时建立独立 React root 与组件树渲染函数并注入 SDK。
+   * 初始不加载任何 mock：预览区为空状态，由 Welcome 欢迎页占位；
+   * 用户发送对话 / 选择模拟流场景后才渲染具体协议。
    */
   useEffect(() => {
     const container = previewHostRef.current;
@@ -234,7 +253,8 @@ function App({ catalog, initialMockId }: AppProps) {
     };
     renderTreeRef.current = renderTree;
 
-    loadMock(initialMockId, renderTree);
+    // 仅注入渲染函数，不预加载 mock 场景
+    resetForStreaming(renderTree);
     resetStoreCache();
 
     return () => {
@@ -349,26 +369,37 @@ function App({ catalog, initialMockId }: AppProps) {
     stopStreamTimer();
     setIsStreaming(false);
     setStreamProgress(null);
+    // 丢弃旧会话：下次发送开启全新线程，不继承上一个 mock 的上下文
+    agentSessionRef.current = null;
     loadMock(id, renderTreeRef.current);
     resetStoreCache();
     setActiveMockId(id);
   };
 
   /**
-   * 发送对话消息：以用户文本调用 a2ui-server 的 SSE 流式接口（POST /）——
+   * 发送对话消息：调用 a2ui-server 的 SSE 流式接口（POST /）——
    * 先回显用户气泡并停止任何本地流式推送，同时立即插入一条带序号的
    * 「模型生成中」占位 Agent 消息；随后随事件流推进状态：
    *   模型生成中（RUN_STARTED）→ 协议渲染中（CUSTOM/a2ui 增量到达）
-   *   → Agent 完成（RUN_FINISHED，含 threadId / 协议条数摘要）；
+   *   → Agent 完成（RUN_FINISHED，含 threadId / 累计协议条数摘要）；
    * RUN_ERROR 或网络失败则将该消息转为红色错误展示。
+   * 同一 agentSession 内可连续发送微调指令（复用 threadId 与已渲染状态）。
    */
   const sendMessage = async () => {
     const text = draft.trim();
-    if (!text || sending) return;
+    // 允许仅发图片（文本为空时以占位说明作为 input）
+    if ((!text && pendingImages.length === 0) || sending) return;
+    const images = pendingImages;
     setDraft("");
+    setPendingImages([]);
     setChatMessages((prev) => [
       ...prev,
-      { id: crypto.randomUUID(), role: "user", text },
+      {
+        id: crypto.randomUUID(),
+        role: "user",
+        text,
+        images: images.length > 0 ? images : undefined,
+      },
     ]);
 
     // ---- 模型对话模式：仅测试模型，不触碰 parser / A2UI 预览 ----
@@ -437,14 +468,24 @@ function App({ catalog, initialMockId }: AppProps) {
     };
 
     try {
-      const result = await streamAgentRun(text, renderTreeRef.current, {
-        onStart: () => patchAgent({ phase: "generating", text: "模型生成中…" }),
-        onProtocol: ({ received }) =>
-          patchAgent({
-            phase: "rendering",
-            text: `协议渲染中…（已接收 ${received} 条协议消息）`,
-          }),
-      });
+      // 首轮懒创建会话（重置 + 分配 threadId）；微调轮复用同一
+      // 会话与线程，预览区就地增量更新
+      if (!agentSessionRef.current) {
+        agentSessionRef.current = createAgentSession(renderTreeRef.current);
+      }
+      const result = await agentSessionRef.current.send(
+        text,
+        {
+          onStart: () =>
+            patchAgent({ phase: "generating", text: "模型生成中…" }),
+          onProtocol: ({ received }) =>
+            patchAgent({
+              phase: "rendering",
+              text: `协议渲染中…（已接收 ${received} 条协议消息）`,
+            }),
+        },
+        images,
+      );
       resetStoreCache();
       const summary = JSON.stringify({
         threadId: result.threadId,
@@ -465,7 +506,94 @@ function App({ catalog, initialMockId }: AppProps) {
     }
   };
 
+  /**
+   * 预览区「点击元素 → 引用 id」：找到事件起点最近的带 data-component-id
+   * 的组件节点，将其 id 追加到对话草稿（以空格分隔，便于直接续写微调指令）。
+   * 不拦截事件、不阻止默认行为：Button 仍触发 userAction，TextField 仍可聚焦，
+   * 连续点击同一组件不会重复追加。
+   */
+  const handlePreviewClick = (event: ReactMouseEvent<HTMLDivElement>) => {
+    const hit = (event.target as HTMLElement).closest(
+      "[data-component-id]",
+    ) as HTMLElement | null;
+    const id = hit?.dataset.componentId;
+    if (!id) return;
+    setDraft((prev) => {
+      const suffix = `${id} `;
+      if (prev.endsWith(suffix)) return prev;
+      return prev ? `${prev.replace(/\s+$/, "")} ${suffix}` : suffix;
+    });
+  };
+
+  /** 把一组图片文件读取为 data URL 并加入待发送列表 */
+  const addImageFiles = (files: File[]) => {
+    const images = files.filter((file) => file.type.startsWith("image/"));
+    if (images.length === 0) return;
+    Promise.all(
+      images.map(
+        (file) =>
+          new Promise<AgentImage>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve({ url: String(reader.result) });
+            reader.onerror = () => reject(reader.error);
+            reader.readAsDataURL(file);
+          }),
+      ),
+    )
+      .then((items) => setPendingImages((prev) => [...prev, ...items]))
+      .catch(() => {
+        /* 单个文件读取失败时忽略 */
+      });
+  };
+
+  /** 通过文件选择器选图 */
+  const handlePickImages = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files ?? []);
+    // 允许重复选择同一文件：重置 input value
+    event.target.value = "";
+    addImageFiles(files);
+  };
+
+  /** 粘贴截图/图片：剪贴板中的图片直接加入待发送列表 */
+  const handlePaste = (event: React.ClipboardEvent<HTMLDivElement>) => {
+    // 模型对话模式不支持多模态；发送中也忽略
+    if (chatMode || sending) return;
+    const files = Array.from(event.clipboardData?.items ?? [])
+      .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
+      .map((item) => item.getAsFile())
+      .filter((file): file is File => file !== null);
+    if (files.length > 0) {
+      // 阻止浏览器默认的粘贴行为（如把图片地址插入文本框）
+      event.preventDefault();
+      addImageFiles(files);
+    }
+  };
+
+  const removePendingImage = (index: number) => {
+    setPendingImages((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  /** 点击欢迎页示例：填入输入框并聚焦，用户确认后再发送 */
+  const handlePickPrompt = (prompt: string) => {
+    if (sending || chatMode) return;
+    setDraft(prompt);
+    requestAnimationFrame(() => {
+      document
+        .querySelector<HTMLTextAreaElement>(
+          'textarea[data-testid="chat-input"]',
+        )
+        ?.focus();
+    });
+  };
+
   const errorEntries = Object.entries(state.errorMap);
+
+  /** A2UI v0.8 标准合规报告（弹窗打开时按当前原始 JSONL 计算） */
+  const complianceReport = useMemo(
+    () =>
+      jsonOpen && state.rawProtocol ? checkProtocol(state.rawProtocol) : null,
+    [jsonOpen, state.rawProtocol],
+  );
 
   // 当前渲染组件总数，及按组件类型（取自协议）的分项计数
   const hydrateEntries = Object.entries(state.hydrateNodeMap);
@@ -499,6 +627,7 @@ function App({ catalog, initialMockId }: AppProps) {
       {/* ============ 左栏：Agent 对话 ============ */}
       <aside
         data-testid="agent-panel"
+        onPaste={handlePaste}
         style={{
           width: 300,
           flexShrink: 0,
@@ -617,6 +746,32 @@ function App({ catalog, initialMockId }: AppProps) {
                     wordBreak: "break-word",
                   }}
                 >
+                  {message.images && message.images.length > 0 && (
+                    <div
+                      data-testid="chat-message-images"
+                      style={{
+                        display: "flex",
+                        flexWrap: "wrap",
+                        gap: 6,
+                        marginBottom: message.text ? 6 : 0,
+                      }}
+                    >
+                      {message.images.map((image, index) => (
+                        <img
+                          key={index}
+                          src={image.url}
+                          alt={`参考图片 ${index + 1}`}
+                          style={{
+                            maxWidth: 160,
+                            maxHeight: 160,
+                            borderRadius: 6,
+                            display: "block",
+                            objectFit: "contain",
+                          }}
+                        />
+                      ))}
+                    </div>
+                  )}
                   {message.text}
                 </div>
               </div>
@@ -703,12 +858,68 @@ function App({ catalog, initialMockId }: AppProps) {
             padding: 12,
           }}
         >
+          {/* 待发送图片缩略图 */}
+          {pendingImages.length > 0 && (
+            <div
+              data-testid="pending-images"
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                gap: 8,
+                marginBottom: 8,
+              }}
+            >
+              {pendingImages.map((image, index) => (
+                <div
+                  key={index}
+                  style={{ position: "relative", width: 64, height: 64 }}
+                >
+                  <img
+                    src={image.url}
+                    alt={`待发送图片 ${index + 1}`}
+                    style={{
+                      width: 64,
+                      height: 64,
+                      objectFit: "cover",
+                      borderRadius: 6,
+                      border: "1px solid #d9d9d9",
+                    }}
+                  />
+                  <button
+                    type="button"
+                    aria-label="移除图片"
+                    disabled={sending}
+                    onClick={() => removePendingImage(index)}
+                    style={{
+                      position: "absolute",
+                      top: -6,
+                      right: -6,
+                      width: 18,
+                      height: 18,
+                      borderRadius: "50%",
+                      border: "none",
+                      background: "#ff4d4f",
+                      color: "#fff",
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      padding: 0,
+                      lineHeight: 1,
+                    }}
+                  >
+                    <CloseOutlined style={{ fontSize: 10 }} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
           <Input.TextArea
             data-testid="chat-input"
             value={draft}
             disabled={sending}
             autoSize={{ minRows: 2, maxRows: 4 }}
-            placeholder="输入消息后按发送调用接口（Enter 发送，Shift+Enter 换行）"
+            placeholder="输入界面需求或微调指令，可点「图片」或直接 Ctrl+V 粘贴截图（Enter 发送，Shift+Enter 换行）"
             onChange={(event) => setDraft(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === "Enter" && !event.shiftKey) {
@@ -717,13 +928,38 @@ function App({ catalog, initialMockId }: AppProps) {
               }
             }}
           />
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            style={{ display: "none" }}
+            onChange={handlePickImages}
+          />
           <div
             style={{
               marginTop: 8,
               display: "flex",
-              justifyContent: "flex-end",
+              justifyContent: "space-between",
+              alignItems: "center",
             }}
           >
+            <Tooltip
+              title={
+                chatMode
+                  ? "图片多模态仅在 A2UI 生成模式下可用，请先关闭「模型对话模式」"
+                  : "附带截图 / 草图 / 设计稿作为参考"
+              }
+            >
+              <Button
+                icon={<PictureOutlined />}
+                disabled={sending || chatMode}
+                data-testid="attach-image"
+                onClick={() => fileInputRef.current?.click()}
+              >
+                图片
+              </Button>
+            </Tooltip>
             <Button
               type="primary"
               data-testid="chat-send"
@@ -815,19 +1051,36 @@ function App({ catalog, initialMockId }: AppProps) {
             }}
           >
             预览区
+            <span style={{ fontSize: 12, fontWeight: 400, color: "#8c8c8c" }}>
+              （点击组件可将其 ID 加入对话输入框）
+            </span>
           </div>
           <div
-            ref={previewHostRef}
-            data-testid="render-preview"
             style={{
               flex: 1,
               minHeight: 0,
-              padding: 20,
+              position: "relative",
               border: "1px solid #e8e8e8",
               borderRadius: 8,
-              overflow: "auto",
+              overflow: "hidden",
             }}
-          />
+          >
+            <div
+              ref={previewHostRef}
+              data-testid="render-preview"
+              onClick={handlePreviewClick}
+              style={{
+                position: "absolute",
+                inset: 0,
+                overflow: "auto",
+                padding: 20,
+              }}
+            />
+            {/* 空状态欢迎页：尚未生成任何协议时展示；发送中不闪回 */}
+            {hydrateEntries.length === 0 && !sending && !isStreaming && (
+              <Welcome onPickPrompt={handlePickPrompt} />
+            )}
+          </div>
         </div>
       </main>
 
@@ -888,22 +1141,187 @@ function App({ catalog, initialMockId }: AppProps) {
         okText="关闭"
         cancelButtonProps={{ style: { display: "none" } }}
       >
-        <pre
-          data-testid="a2ui-json-content"
-          style={{
-            maxHeight: "60vh",
-            overflow: "auto",
-            padding: 16,
-            background: "#f5f5f5",
-            border: "1px solid #ddd",
-            borderRadius: 8,
-            fontSize: 12,
-            whiteSpace: "pre-wrap",
-            wordBreak: "break-word",
-          }}
-        >
-          {state.rawProtocol || "// (empty)"}
-        </pre>
+        {state.rawProtocol ? (
+          <div data-testid="a2ui-json-content">
+            {/* v0.8 标准合规摘要 */}
+            {complianceReport && (
+              <div
+                data-testid="compliance-summary"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  flexWrap: "wrap",
+                  gap: 8,
+                  marginBottom: 12,
+                  fontSize: 12,
+                }}
+              >
+                <span style={{ color: "#8c8c8c" }}>v0.8 合规校验：</span>
+                <Tag color="green" data-testid="compliance-valid">
+                  合规 {complianceReport.totals.valid}
+                </Tag>
+                <Tag color="orange" data-testid="compliance-extension">
+                  扩展 {complianceReport.totals.extension}
+                </Tag>
+                <Tag
+                  color={
+                    complianceReport.totals.invalid > 0 ? "red" : "default"
+                  }
+                  data-testid="compliance-invalid"
+                >
+                  违规 {complianceReport.totals.invalid}
+                </Tag>
+                <span style={{ color: "#bfbfbf" }}>
+                  共 {complianceReport.totals.total} 条消息
+                </span>
+                <span style={{ color: "#bfbfbf" }}>
+                  （「扩展」= 项目方言、v0.8 标准外但渲染器支持，如组件级
+                  styles）
+                </span>
+              </div>
+            )}
+            <div
+              style={{
+                maxHeight: "60vh",
+                overflow: "auto",
+                border: "1px solid #ddd",
+                borderRadius: 8,
+                background: "#fafafa",
+              }}
+            >
+              {complianceReport?.lines
+                .filter((line) => line.raw.trim() !== "")
+                .map((line) => {
+                  const borderColor =
+                    line.status === "invalid"
+                      ? "#ff4d4f"
+                      : line.status === "extension"
+                        ? "#faad14"
+                        : "#d9f7be";
+                  const dotColor =
+                    line.status === "invalid"
+                      ? "#ff4d4f"
+                      : line.status === "extension"
+                        ? "#faad14"
+                        : "#52c41a";
+                  return (
+                    <div
+                      key={line.lineNo}
+                      data-testid={`compliance-line-${line.lineNo}`}
+                      style={{
+                        borderLeft: `3px solid ${borderColor}`,
+                        padding: "8px 12px",
+                        borderBottom: "1px solid #f0f0f0",
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 8,
+                          marginBottom: 4,
+                        }}
+                      >
+                        <span
+                          style={{
+                            width: 8,
+                            height: 8,
+                            borderRadius: "50%",
+                            background: dotColor,
+                            display: "inline-block",
+                            flex: "none",
+                          }}
+                        />
+                        <span
+                          style={{
+                            fontSize: 11,
+                            color: "#8c8c8c",
+                            fontFamily: "monospace",
+                          }}
+                        >
+                          #{line.lineNo}
+                        </span>
+                        {line.action && (
+                          <Tag
+                            style={{
+                              margin: 0,
+                              fontSize: 11,
+                              lineHeight: "18px",
+                            }}
+                          >
+                            {line.action}
+                          </Tag>
+                        )}
+                        {line.issues.map((issue, index) => (
+                          <Tag
+                            key={index}
+                            color={issue.level === "error" ? "red" : "orange"}
+                            style={{
+                              margin: 0,
+                              fontSize: 11,
+                              lineHeight: "18px",
+                            }}
+                          >
+                            {issue.level === "error" ? "违规" : "扩展"}
+                          </Tag>
+                        ))}
+                      </div>
+                      <pre
+                        style={{
+                          margin: 0,
+                          fontSize: 12,
+                          lineHeight: 1.6,
+                          whiteSpace: "pre-wrap",
+                          wordBreak: "break-word",
+                          fontFamily: "monospace",
+                          color: "#262626",
+                        }}
+                      >
+                        {line.raw}
+                      </pre>
+                      {line.issues.length > 0 && (
+                        <div style={{ marginTop: 4 }}>
+                          {line.issues.map((issue, index) => (
+                            <div
+                              key={index}
+                              style={{
+                                fontSize: 11,
+                                lineHeight: 1.6,
+                                color:
+                                  issue.level === "error"
+                                    ? "#cf1322"
+                                    : "#ad6800",
+                              }}
+                            >
+                              {issue.level === "error" ? "✕" : "△"} {issue.path}
+                              ：{issue.message}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+            </div>
+          </div>
+        ) : (
+          <pre
+            data-testid="a2ui-json-content"
+            style={{
+              maxHeight: "60vh",
+              overflow: "auto",
+              padding: 16,
+              background: "#f5f5f5",
+              border: "1px solid #ddd",
+              borderRadius: 8,
+              fontSize: 12,
+              whiteSpace: "pre-wrap",
+              wordBreak: "break-word",
+            }}
+          >
+            {"// (empty)"}
+          </pre>
+        )}
       </Modal>
 
       <Modal

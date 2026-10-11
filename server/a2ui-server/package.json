@@ -8,10 +8,12 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json",
-    "test": "node --import tsx --test test/agui-encoder.test.ts test/mock-agent.test.ts test/http.test.ts test/chat-http.test.ts test/llm-agent.test.ts"
+    "test": "node --import tsx --test test/agui-encoder.test.ts test/mock-agent.test.ts test/http.test.ts test/chat-http.test.ts test/llm-agent.test.ts test/agent-tools.test.ts test/eval-validate.test.ts test/eval-agent.test.ts",
+    "eval:agent": "node --import tsx --test test/eval-agent.test.ts"
   },
   "dependencies": {
     "@a2ui/core": "workspace:*",
+    "@ant-design/icons": "^6.3.4",
     "@koa/router": "^12.0.1",
     "koa": "^2.15.3",
     "koa-bodyparser": "^4.4.1",

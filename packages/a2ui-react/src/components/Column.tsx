@@ -1,4 +1,6 @@
 import type { CSSProperties, ReactNode } from "react";
+import type { ComponentStyles } from "@a2ui/core";
+import { mergeStyles } from "../styles.js";
 
 /** A2UI Column 组件属性（renderMap 适配器解析后传入） */
 export interface A2UIColumnProps {
@@ -17,6 +19,8 @@ export interface A2UIColumnProps {
     | "spaceEvenly";
   /** 交叉轴（横向）对齐：对应 CSS align-items */
   alignment?: "start" | "center" | "end" | "stretch";
+  /** 组件级样式覆盖 */
+  styles?: ComponentStyles;
 }
 
 /** 协议布局值 -> CSS 值 */
@@ -40,19 +44,15 @@ export function A2UIColumn({
   resolveChildren,
   distribution,
   alignment,
+  styles,
 }: A2UIColumnProps) {
-  return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        justifyContent: distribution
-          ? JUSTIFY_CONTENT[distribution]
-          : undefined,
-        alignItems: alignment ? ALIGN_ITEMS[alignment] : undefined,
-      }}
-    >
-      {resolveChildren?.() ?? null}
-    </div>
-  );
+  const base: CSSProperties = {
+    display: "flex",
+    flexDirection: "column",
+    justifyContent: distribution
+      ? JUSTIFY_CONTENT[distribution]
+      : undefined,
+    alignItems: alignment ? ALIGN_ITEMS[alignment] : undefined,
+  };
+  return <div style={mergeStyles(base, styles)}>{resolveChildren?.() ?? null}</div>;
 }

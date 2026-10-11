@@ -11,6 +11,8 @@ export { A2UIButton } from "./components/Button.js";
 export type { A2UIButtonProps } from "./components/Button.js";
 export { A2UIList } from "./components/List.js";
 export type { A2UIListProps } from "./components/List.js";
+export { A2UIIcon, CANONICAL_ICON_MAP } from "./components/Icon.js";
+export type { A2UIIconProps } from "./components/Icon.js";
 export { A2UITextField } from "./components/TextField.js";
 export type {
   A2UITextFieldProps,

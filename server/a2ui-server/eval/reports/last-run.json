@@ -1,0 +1,32 @@
+{
+  "date": "2026-10-10T13:54:24.669Z",
+  "total": 1,
+  "passed": 1,
+  "failed": 0,
+  "passRate": 1,
+  "scenarios": [
+    {
+      "id": "eval-19",
+      "name": "运营数据概览仪表盘",
+      "passed": true,
+      "durationMs": 31186,
+      "violations": [],
+      "stats": {
+        "messageCount": 19,
+        "componentCount": 19,
+        "typeCounts": {
+          "Column": 1,
+          "Text": 9,
+          "Row": 4,
+          "Icon": 3,
+          "Button": 2
+        },
+        "actionNames": [
+          "refreshDashboard",
+          "downloadReport"
+        ],
+        "templateCount": 0
+      }
+    }
+  ]
+}

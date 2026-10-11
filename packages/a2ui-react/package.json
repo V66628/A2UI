@@ -20,7 +20,8 @@
     "typecheck": "tsc -p tsconfig.dev.json"
   },
   "dependencies": {
-    "@a2ui/core": "workspace:*"
+    "@a2ui/core": "workspace:*",
+    "@ant-design/icons": "^6.3.4"
   },
   "peerDependencies": {
     "react": "^18.0.0",

@@ -132,6 +132,28 @@ describe("A2UI parser", () => {
       );
       assert.strictEqual(result.surfaces[0].rootNode, null);
     });
+
+    it("已渲染 surface 再次收到无效 root 的 beginRendering 时保留原 rootNode 且不报错", () => {
+      const redundantRender = JSON.stringify({
+        beginRendering: { surfaceId: "main", root: "missing-root" },
+      });
+      // 直接对同一 parser 复现：surface 已有 root，新 root 缺失
+      const parser = createParser();
+      parser.parse(mockJsonl.trim().split("\n")[0]); // 注册节点
+      parser.parse(mockJsonl.trim().split("\n")[1]); // beginRendering → 建立 rootNode
+      const originalRoot = parser.getResult().surfaces[0].rootNode;
+      assert.ok(originalRoot);
+
+      parser.parse(redundantRender);
+
+      const after = parser.getResult();
+      assert.strictEqual(after.surfaces[0].rootNode, originalRoot);
+      assert.strictEqual(
+        after.errors.some((e) => e.type === ErrorType.PARSE_ERROR),
+        false,
+        "不应产生 PARSE_ERROR",
+      );
+    });
   });
 
   describe("renderer 组件注册检查", () => {

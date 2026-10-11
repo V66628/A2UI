@@ -1,4 +1,6 @@
 import type { CSSProperties, ReactNode } from "react";
+import type { ComponentStyles } from "@a2ui/core";
+import { mergeStyles } from "../styles.js";
 
 /** A2UI List 组件属性（renderMap 适配器解析后传入） */
 export interface A2UIListProps {
@@ -11,6 +13,8 @@ export interface A2UIListProps {
   direction?: "vertical" | "horizontal";
   /** 交叉轴对齐：对应 CSS align-items */
   alignment?: "start" | "center" | "end" | "stretch";
+  /** 组件级样式覆盖 */
+  styles?: ComponentStyles;
 }
 
 /** 协议布局值 -> CSS 值 */
@@ -26,16 +30,14 @@ export function A2UIList({
   resolveChildren,
   direction = "vertical",
   alignment,
+  styles,
 }: A2UIListProps) {
+  const base: CSSProperties = {
+    display: "flex",
+    flexDirection: direction === "horizontal" ? "row" : "column",
+    alignItems: alignment ? ALIGN_ITEMS[alignment] : undefined,
+  };
   return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: direction === "horizontal" ? "row" : "column",
-        alignItems: alignment ? ALIGN_ITEMS[alignment] : undefined,
-      }}
-    >
-      {resolveChildren?.() ?? null}
-    </div>
+    <div style={mergeStyles(base, styles)}>{resolveChildren?.() ?? null}</div>
   );
 }

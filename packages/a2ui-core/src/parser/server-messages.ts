@@ -312,6 +312,8 @@ function handleBeginRendering(
 
   const rootNode = ctx.nodeMap.get(surfaceId)?.get(root) ?? null;
   if (!rootNode) {
+    // 已在渲染且已有 root：冗余/错误的 beginRendering 不应破坏现有渲染
+    if (surface.rootNode) return;
     addParseError(
       ctx,
       `beginRendering 的 root "${root}" 在 surface "${surfaceId}" 中不存在`,

@@ -1,6 +1,6 @@
 {
   "catalogId": "https://a2ui.org/specification/v0_8/docs/catalog_definition.json",
-  "description": "Catalog definition for the @a2ui/react renderer (packages/a2ui-react/src/components). It describes exactly the atomic components the React renderer implements: Text, Row, Column, List, Button, TextField. MountFade is an internal entrance-animation wrapper (application/json+a2ui is not a protocol component) and is intentionally excluded. Component schemas are derived from standard_catalog_definition.json, restricted to this supported subset.",
+  "description": "Catalog definition for the @a2ui/react renderer (packages/a2ui-react/src/components). It describes exactly the atomic components the React renderer implements: Text, Row, Column, List, Button, TextField, Icon (rendered via @ant-design/icons). MountFade is an internal entrance-animation wrapper (application/json+a2ui is not a protocol component) and is intentionally excluded. Component schemas are derived from standard_catalog_definition.json, restricted to this supported subset.",
   "components": {
     "Text": {
       "type": "object",
@@ -303,6 +303,76 @@
         }
       },
       "required": ["label"]
+    },
+    "Icon": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "object",
+          "description": "The name of the icon to display as a canonical icon id (rendered via the antd / @ant-design/icons library). This can be a literal string from the enum or a reference to a value in the data model ('path'). If unsure which icon ids exist, call the search_antd_icons tool.",
+          "additionalProperties": false,
+          "properties": {
+            "literalString": {
+              "type": "string",
+              "enum": [
+                "accountCircle",
+                "add",
+                "arrowBack",
+                "arrowForward",
+                "attachFile",
+                "calendarToday",
+                "call",
+                "camera",
+                "check",
+                "close",
+                "delete",
+                "download",
+                "edit",
+                "event",
+                "error",
+                "favorite",
+                "favoriteOff",
+                "folder",
+                "help",
+                "home",
+                "info",
+                "locationOn",
+                "lock",
+                "lockOpen",
+                "mail",
+                "menu",
+                "moreVert",
+                "moreHoriz",
+                "notificationsOff",
+                "notifications",
+                "payment",
+                "person",
+                "phone",
+                "photo",
+                "print",
+                "refresh",
+                "search",
+                "send",
+                "settings",
+                "share",
+                "shoppingCart",
+                "star",
+                "starHalf",
+                "starOff",
+                "upload",
+                "visibility",
+                "visibilityOff",
+                "warning"
+              ]
+            },
+            "path": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "required": ["name"]
     }
   },
   "styles": {

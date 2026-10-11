@@ -10,11 +10,13 @@ import {
   resolveBinding,
   resolveValueBinding,
   type ChildrenTemplate,
+  type ComponentStyles,
   type RenderContext,
   type RenderMap,
   type TypedValueBinding,
 } from "@a2ui/core";
 import { A2UIButton } from "./components/Button.js";
+import { A2UIIcon } from "./components/Icon.js";
 import { A2UIList } from "./components/List.js";
 import { MountFade } from "./components/MountFade.js";
 import { A2UIText } from "./components/Text.js";
@@ -32,6 +34,7 @@ export const renderMap: RenderMap = {
     const textProps = props as {
       text?: { literalString?: string; path?: string };
       usageHint?: string;
+      styles?: ComponentStyles;
     };
     const resolved = resolveBinding(textProps.text, context.dataModel);
     return withMountFade(
@@ -39,6 +42,7 @@ export const renderMap: RenderMap = {
         value:
           resolved === null || resolved === undefined ? "" : String(resolved),
         usageHint: textProps.usageHint,
+        styles: textProps.styles,
       }),
       context,
     );
@@ -51,11 +55,13 @@ export const renderMap: RenderMap = {
       direction?: "vertical" | "horizontal";
       alignment?: "start" | "center" | "end" | "stretch";
       children?: { explicitList?: string[]; template?: unknown };
+      styles?: ComponentStyles;
     };
     return withMountFade(
       createElement(A2UIList, {
         direction: listProps.direction,
         alignment: listProps.alignment,
+        styles: listProps.styles,
         resolveChildren: () =>
           resolveContainerChildren(
             listProps.children?.explicitList ?? [],
@@ -71,6 +77,9 @@ export const renderMap: RenderMap = {
     const buttonProps = props as {
       child?: string;
       primary?: boolean;
+      paddingVertical?: number;
+      paddingHorizontal?: number;
+      styles?: ComponentStyles;
       action?: {
         name: string;
         context?: Array<{ key: string; value?: TypedValueBinding }>;
@@ -79,6 +88,9 @@ export const renderMap: RenderMap = {
     return withMountFade(
       createElement(A2UIButton, {
         primary: buttonProps.primary,
+        paddingVertical: buttonProps.paddingVertical,
+        paddingHorizontal: buttonProps.paddingHorizontal,
+        styles: buttonProps.styles,
         // 惰性解析 child 引用（通常为 Text）
         resolveChild: () => {
           const childId = buttonProps.child;
@@ -117,11 +129,28 @@ export const renderMap: RenderMap = {
     );
   },
 
+  Icon: (props, context) => {
+    const iconProps = props as {
+      name?: { literalString?: string; path?: string };
+      styles?: ComponentStyles;
+    };
+    const resolved = resolveBinding(iconProps.name, context.dataModel);
+    return withMountFade(
+      createElement(A2UIIcon, {
+        name:
+          resolved === null || resolved === undefined ? "" : String(resolved),
+        styles: iconProps.styles,
+      }),
+      context,
+    );
+  },
+
   TextField: (props, context) => {
     const fieldProps = props as {
       label?: TypedValueBinding;
       text?: TypedValueBinding;
       textFieldType?: TextFieldKind;
+      styles?: ComponentStyles;
     };
     const resolvedValue = resolveValueBinding(
       fieldProps.text,
@@ -142,6 +171,7 @@ export const renderMap: RenderMap = {
             ? ""
             : String(resolvedValue),
         fieldType: fieldProps.textFieldType,
+        styles: fieldProps.styles,
         onChange: (next) => {
           // 仅 path 绑定可写；字面量绑定只读
           const path = fieldProps.text?.path;
@@ -166,7 +196,6 @@ function withMountFade(
     key: context.componentId,
     nodeToken: context.nodeToken,
     componentId: context.componentId,
-    hasMounted: context.hasMounted,
     onFadeEnd: context.markMounted,
     children: vnode,
   });
@@ -175,6 +204,7 @@ function withMountFade(
 /** 布局容器（Column / Row）的协议 props，二者结构一致 */
 type LayoutProps = Pick<A2UIColumnProps, "distribution" | "alignment"> & {
   children?: { explicitList?: string[]; template?: unknown };
+  styles?: ComponentStyles;
 };
 
 /**
@@ -217,6 +247,7 @@ function createLayoutRenderer(
       createElement(Component, {
         distribution: layoutProps.distribution,
         alignment: layoutProps.alignment,
+        styles: layoutProps.styles,
         // 惰性解析：组件实际 render 时子节点 / item 模板已就绪
         resolveChildren: () =>
           resolveContainerChildren(

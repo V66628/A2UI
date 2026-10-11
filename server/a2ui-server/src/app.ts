@@ -157,7 +157,8 @@ export function createApp(
     await next();
   });
 
-  app.use(bodyParser({ enableTypes: ["json"] }));
+  // 多模态请求体含 base64 图片（data URL），放宽 JSON 体积上限
+  app.use(bodyParser({ enableTypes: ["json"], jsonLimit: "20mb" }));
 
   const router = new Router();
 
@@ -181,8 +182,19 @@ export function createApp(
       typeof body.threadId === "string" ? body.threadId : randomUUID();
     const runId = typeof body.runId === "string" ? body.runId : randomUUID();
     const images = resolveImages(body);
+    // 客户端当前已渲染协议（多轮微调携带；首轮缺省）
+    const currentProtocol =
+      typeof body.currentProtocol === "string" && body.currentProtocol.trim()
+        ? body.currentProtocol
+        : undefined;
 
-    const a2uiStream = agent.run({ input, images, threadId, runId });
+    const a2uiStream = agent.run({
+      input,
+      images,
+      currentProtocol,
+      threadId,
+      runId,
+    });
     const aguiStream = encodeAgUI(a2uiStream, { threadId, runId, input });
 
     // 默认 SSE 流式；?stream=false 时一次性 JSON 返回

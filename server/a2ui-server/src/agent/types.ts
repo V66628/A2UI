@@ -12,10 +12,16 @@ export interface AgentImageInput {
 
 /** 一次 agent 运行的输入（由 HTTP 接口解析用户请求得到） */
 export interface AgentRunInput {
-  /** 用户的文本输入 */
+  /** 用户的文本输入（首轮的界面需求 / 后续轮的微调指令） */
   input: string;
   /** 用户附带的参考图片（截图/草图/设计稿，多模态）；可选 */
   images?: AgentImageInput[];
+  /**
+   * 客户端当前已渲染的完整 A2UI 协议（JSONL 文本）。
+   * 多轮微调时由客户端随请求携带：agent 据此做针对性修改，
+   * 仅返回增量协议；首轮为空。
+   */
+  currentProtocol?: string;
   /** 会话 id（可由客户端传入，缺省由服务端生成） */
   threadId: string;
   /** 本次运行 id */

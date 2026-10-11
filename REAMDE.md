@@ -92,4 +92,21 @@ suerfaceUpdate需要每一个component都处理成独立的jsonL
  38。client_to_server.json现在需要实现client到server的动态交互过程，这里A2UI 0.8协议不支持本地的数据更新，所以我们需要增加协议描述，当前类型为本地更新的时候，只需要通过在A2UI-react的action trgger里，模拟A2UI的updateModel来实现数据的更新。
 先实现本地状态的更新，构造一个最小实现case，一个按钮可以更新一行文案。
 39.现在需要搭建基础的a2ui-server，server核心接口为接受用户的 输入，并调用agent来生成a2ui协议，先用mock代替agent，先把接口搭建起来，接口的传输使用SSE，需要支持流式并且使用AGUI协议传输
+40.根据图片生成client界面
+41.把测试接口改成ui内发送键
+42.使用oneapi建立最基础的模型链接，增加一个模型对话的接口，在playground中增加开关，开启后仅测试模型对话能力
+43.增加a2uiagent的prompt，agent支持用户通过自然语言描述以及图片（多模态模型），生成对应符合docs文件夹下定义的a2ui json协议，并返回端上渲染。需要直接生成对应的prompt模板，并在agent server中组装成完整的prompt
+44.playground的a2ui模式的对话，增加模型返回，协议渲染中，以及完成状态
+45.给这个项目生成一个评测集合 跟图片中的评测相似 。希望复杂一些 评测需要有一定的业务场景 ，集成测试a2ui agent系统
+46.扩展测评集，增加icon图标使用场景，引入图标库（antd图标库），通过tools（mcp）在agent需要获取antd图标如何使用的时候，调用tools提供给agent图标查询的能力。
+47.实现多轮对话能力 可以基于现有的A2UI协议进行组件或者样式的微调整 同时修改prompt让agent支持多轮微调能力。
+48.在playground中多轮对话的时候,用户发送消息的时候，需要通过接口把现有渲染的协议一并发送到agent，让agent基于现有协议进行调整修改。agent只需要返回并生成增量协议部分，将agent返回后的内容拼接原始有协议里。再进行渲染
+49.实现通过在playground预览区域点击对应的元素，快速将元素的ID添加到agent的对话区域内。
+50.需要所有的原子组件都支持styles
+51.需要增加多模态能力，在playground里面支持发送图片，agent支持通过多模态能力生成a2ui协议
+52.我截图 然后粘贴到agent对话区域内 图片没有预览出来 请修复这个问题
  -->
+ <!-- 
+在component里面实现一个自定义组件，让a2ui agent可以使用这个自定义组件
+生成一个这个自定义组件的评测
+-->

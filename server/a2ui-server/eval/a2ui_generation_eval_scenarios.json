@@ -1,0 +1,592 @@
+{
+  "schemaVersion": "1.0",
+  "description": "A2UI 生成 Agent 集成评测集。每个场景给出真实业务语境下的自然语言需求（userPrompt）与结构化期望（expect），由真实多模态 LLMAgent 生成 A2UI JSONL，再用确定性校验器比对 expect。允许使用 renderer 已支持的组件：Text、Row、Column、List、Button、TextField、Icon（Icon 经 @ant-design/icons 渲染；模型可通过 search_antd_icons 工具查询合法图标名）；禁止 Image/Card/Divider 等未实现组件。",
+  "supportedComponents": [
+    "Text",
+    "Row",
+    "Column",
+    "List",
+    "Button",
+    "TextField",
+    "Icon"
+  ],
+  "scenarios": [
+    {
+      "id": "eval-01",
+      "name": "电商购物车结算",
+      "category": "e-commerce",
+      "tags": [
+        "list",
+        "data-binding",
+        "template",
+        "column",
+        "row",
+        "text",
+        "button"
+      ],
+      "userPrompt": "做一个电商购物车页面。最外层是纵向 Column：顶部一个标题 Text「Shopping Cart」；中间是一个纵向 List，用 children.template 绑定数据模型 /items，数组里预置 3 件商品（机械键盘 89 美元、无线鼠标 25.5 美元、USB-C 线 9.9 美元），每行用横向 Row 排布：商品名称 Text、单价 Text、一个 Remove 按钮；底部 Row 左侧显示合计 Text（路径绑定 /total，值为 124.4），右侧一个主按钮 Checkout。所有动态数据走 dataModelUpdate，组件里不要写死商品数据。",
+      "expect": {
+        "requiredComponents": ["Column", "Row", "List", "Text", "Button"],
+        "minComponents": 14,
+        "requireDataModel": true,
+        "requireTemplateList": true,
+        "requiredActions": ["removeItem", "checkout"],
+        "requiredDataPaths": ["/items"],
+        "requiredBindings": ["/total"],
+        "requiredLiterals": ["Shopping Cart", "Checkout", "Remove"]
+      }
+    },
+    {
+      "id": "eval-02",
+      "name": "B2B 工业品询价卡",
+      "category": "b2b",
+      "tags": ["form", "column", "row", "text", "textfield", "button"],
+      "userPrompt": "做一个工业品 B2B 在线询价表单。纵向 Column：标题 Text「Request a Quote」；副标题说明文字；然后依次是三个 TextField：公司名称（shortText，绑定 /form/company，默认值 Acme Industrial）、联系人邮箱（shortText）、采购数量（number，默认 100）；一个多行 TextField 填写规格要求（longText）；底部 Row 右对齐放一个普通按钮 Cancel 和一个主按钮 Submit RFQ，主按钮的 action 名叫 submitInquiry。",
+      "expect": {
+        "requiredComponents": ["Column", "Row", "TextField", "Button", "Text"],
+        "minComponents": 12,
+        "requireDataModel": true,
+        "requiredActions": ["submitInquiry"],
+        "requiredDataPaths": ["/form"],
+        "requiredLiterals": ["Request a Quote", "Submit RFQ"]
+      }
+    },
+    {
+      "id": "eval-03",
+      "name": "企业对公开户向导",
+      "category": "finance",
+      "tags": ["steps", "form", "column", "row", "text", "textfield", "button"],
+      "userPrompt": "做银行对公开户线上向导的第 2 步（共 4 步：企业信息、法人信息、账户设置、完成）。页面纵向 Column：顶部 Row 横向排列 4 个步骤文字 Text，当前第 2 步的文字要能区分（用文字「Step 2 of 4: Legal Representative」做标题也行）；中间表单两个 TextField：法人姓名（shortText，绑定 /legal/name）、法人身份证号（shortText，绑定 /legal/idNumber）；底部 Row：左侧 Back 按钮（action=prevStep），右侧 Next 主按钮（action=nextStep）。",
+      "expect": {
+        "requiredComponents": ["Column", "Row", "TextField", "Button", "Text"],
+        "minComponents": 12,
+        "requireDataModel": true,
+        "requiredActions": ["prevStep", "nextStep"],
+        "requiredLiterals": ["Back", "Next"]
+      }
+    },
+    {
+      "id": "eval-04",
+      "name": "帮助中心 FAQ 分组",
+      "category": "support",
+      "tags": ["list", "column", "row", "text", "button"],
+      "userPrompt": "做产品帮助中心的常见问题页。纵向 Column：标题「Help Center」；下面纵向列出两个 FAQ 分组，每个分组是一个纵向 Column：分组标题 Text（Getting Started、Billing），下面用纵向 List 各放 2 个问题条目，每个条目是一个 Button（child 是问题 Text，action 名叫 openFaq，context 里带问题 id 的字面量）。问题示例：How do I reset my password、How do I invite teammates、How do I upgrade my plan、How do I download invoices。",
+      "expect": {
+        "requiredComponents": ["Column", "List", "Button", "Text"],
+        "minComponents": 14,
+        "requireDataModel": false,
+        "requiredActions": ["openFaq"],
+        "requiredLiterals": ["Help Center", "Getting Started", "Billing"]
+      }
+    },
+    {
+      "id": "eval-05",
+      "name": "SaaS 团队成员管理",
+      "category": "saas",
+      "tags": [
+        "list",
+        "data-binding",
+        "template",
+        "form",
+        "column",
+        "row",
+        "text",
+        "textfield",
+        "button"
+      ],
+      "userPrompt": "做 SaaS 后台的团队成员管理页。纵向 Column：顶部 Row，左边标题「Team Members」，右边一个主按钮 Invite（action=inviteMember）；邀请区一个 TextField 输入邮箱（绑定 /inviteEmail）配 Invite 按钮；中间纵向 List 用 template 绑定 /members，预置 3 名成员（Alice 角色 Admin、Bob 角色 Developer、Carol 角色 Viewer），每行横向 Row：成员姓名 Text（绑定当前项 name）、角色 Text（绑定 role）、一个 Remove 按钮（action=removeMember，context 带成员 id）。",
+      "expect": {
+        "requiredComponents": [
+          "Column",
+          "Row",
+          "List",
+          "TextField",
+          "Button",
+          "Text"
+        ],
+        "minComponents": 14,
+        "requireDataModel": true,
+        "requireTemplateList": true,
+        "requiredActions": ["removeMember", "inviteMember"],
+        "requiredDataPaths": ["/members"],
+        "requiredLiterals": ["Team Members", "Admin"]
+      }
+    },
+    {
+      "id": "eval-06",
+      "name": "差旅报销单提交",
+      "category": "finance",
+      "tags": [
+        "list",
+        "data-binding",
+        "template",
+        "form",
+        "column",
+        "row",
+        "text",
+        "textfield",
+        "button"
+      ],
+      "userPrompt": "做一个差旅费用报销单。纵向 Column：标题「Expense Report」；两个 TextField：出差事由（shortText，绑定 /report/purpose）、出差城市（shortText）；费用明细纵向 List 用 template 绑定 /expenses，预置 2 条（机票 1200、酒店 800），每行 Row：费用类别 Text、金额 Text（绑定当前项 amount）、Delete 按钮（action=deleteExpense）；Row 里一个 Add Expense 普通按钮（action=addExpense）；底部 Row：合计 Text 绑定 /total（2000），右侧 Submit for Approval 主按钮（action=submitExpense）。",
+      "expect": {
+        "requiredComponents": [
+          "Column",
+          "Row",
+          "List",
+          "TextField",
+          "Button",
+          "Text"
+        ],
+        "minComponents": 16,
+        "requireDataModel": true,
+        "requireTemplateList": true,
+        "requiredActions": ["addExpense", "deleteExpense", "submitExpense"],
+        "requiredDataPaths": ["/expenses"],
+        "requiredBindings": ["/total"],
+        "requiredLiterals": ["Expense Report", "Submit for Approval"]
+      }
+    },
+    {
+      "id": "eval-07",
+      "name": "餐饮扫码点餐菜单",
+      "category": "retail",
+      "tags": [
+        "list",
+        "data-binding",
+        "template",
+        "column",
+        "row",
+        "text",
+        "button"
+      ],
+      "userPrompt": "做餐厅扫码点餐页面。纵向 Column：店名标题「Noodle House」，桌号文字 Table 5；菜单纵向 List 用 template 绑定 /menu，预置 4 个菜品（Beef Noodles 12、Veggie Noodles 10、Spring Rolls 6、Soda 3），每行 Row：菜名 Text、价格 Text、右侧一个 Add 按钮（action=addItem，context 带菜品 id）；底部 Row：已选数量/金额 Text 绑定 /cartSummary，右侧 Place Order 主按钮（action=placeOrder）。",
+      "expect": {
+        "requiredComponents": ["Column", "Row", "List", "Button", "Text"],
+        "minComponents": 16,
+        "requireDataModel": true,
+        "requireTemplateList": true,
+        "requiredActions": ["addItem", "placeOrder"],
+        "requiredDataPaths": ["/menu"],
+        "requiredLiterals": ["Noodle House", "Place Order"]
+      }
+    },
+    {
+      "id": "eval-08",
+      "name": "物流运单追踪",
+      "category": "logistics",
+      "tags": [
+        "list",
+        "data-binding",
+        "template",
+        "column",
+        "row",
+        "text",
+        "button"
+      ],
+      "userPrompt": "做物流运单追踪页。纵向 Column：标题「Track Shipment」，运单号文字 SF1234567890；一个纵向 List 用 template 绑定 /tracking/events，预置 3 条轨迹（已揽收、运输中、派送中），每行 Row：状态 Text（绑定当前项 status）、时间 Text（绑定 time）和城市 Text（绑定 location）；底部一个 Refresh Status 按钮（action=refreshTracking）和一个 Contact Support 按钮（action=contactSupport）。",
+      "expect": {
+        "requiredComponents": ["Column", "Row", "List", "Button", "Text"],
+        "minComponents": 14,
+        "requireDataModel": true,
+        "requireTemplateList": true,
+        "requiredActions": ["refreshTracking", "contactSupport"],
+        "requiredDataPaths": ["/tracking"],
+        "requiredLiterals": ["Track Shipment"]
+      }
+    },
+    {
+      "id": "eval-09",
+      "name": "CRM 客户详情与跟进",
+      "category": "sales",
+      "tags": [
+        "list",
+        "data-binding",
+        "template",
+        "column",
+        "row",
+        "text",
+        "textfield",
+        "button"
+      ],
+      "userPrompt": "做 CRM 客户详情页。纵向 Column：顶部 Row：客户名称标题「Acme Corp」和一个 Edit 按钮（action=editCustomer）；信息区两行 Row 显示 Email 和 Phone 文字；跟进记录纵向 List 用 template 绑定 /followups，预置 2 条（Called client、Sent proposal），每行 Row：跟进内容 Text（绑定 note）、日期 Text（绑定 date）；底部一个 TextField 填写新跟进（绑定 /newFollowup），一个 Log Follow-up 主按钮（action=addFollowup）。",
+      "expect": {
+        "requiredComponents": [
+          "Column",
+          "Row",
+          "List",
+          "TextField",
+          "Button",
+          "Text"
+        ],
+        "minComponents": 16,
+        "requireDataModel": true,
+        "requireTemplateList": true,
+        "requiredActions": ["editCustomer", "addFollowup"],
+        "requiredDataPaths": ["/followups"],
+        "requiredLiterals": ["Acme Corp", "Log Follow-up"]
+      }
+    },
+    {
+      "id": "eval-10",
+      "name": "招聘候选人流水线",
+      "category": "hr",
+      "tags": [
+        "list",
+        "data-binding",
+        "template",
+        "column",
+        "row",
+        "text",
+        "button"
+      ],
+      "userPrompt": "做招聘管理的候选人列表页。纵向 Column：标题「Candidates」和一个 New Candidate 主按钮（action=newCandidate）；候选人纵向 List 用 template 绑定 /candidates，预置 3 人（Dana 应聘前端、Eli 应聘后端、Faye 应聘设计师），每行 Row：姓名 Text（绑定 name）、应聘岗位 Text（绑定 role）、当前阶段 Text（绑定 stage）；行尾两个按钮：Schedule Interview（action=scheduleInterview）和 Reject（action=rejectCandidate）。",
+      "expect": {
+        "requiredComponents": ["Column", "Row", "List", "Button", "Text"],
+        "minComponents": 16,
+        "requireDataModel": true,
+        "requireTemplateList": true,
+        "requiredActions": ["scheduleInterview", "rejectCandidate"],
+        "requiredDataPaths": ["/candidates"],
+        "requiredLiterals": ["Candidates", "Schedule Interview"]
+      }
+    },
+    {
+      "id": "eval-11",
+      "name": "医院在线预约挂号",
+      "category": "healthcare",
+      "tags": [
+        "list",
+        "data-binding",
+        "template",
+        "form",
+        "column",
+        "row",
+        "text",
+        "textfield",
+        "button"
+      ],
+      "userPrompt": "做医院在线预约挂号页。纵向 Column：标题「Book Appointment」；科室选择纵向 List 用 template 绑定 /departments，预置 3 个科室（Internal Medicine、Cardiology、Dermatology），每个科室是一个 Button（child 是科室名 Text，action=selectDepartment，context 带科室 id）；日期 TextField（date 类型，绑定 /appointment/date）；患者姓名 TextField（shortText，绑定 /appointment/patient）；底部 Confirm Booking 主按钮（action=confirmBooking）。",
+      "expect": {
+        "requiredComponents": ["Column", "List", "TextField", "Button", "Text"],
+        "minComponents": 14,
+        "requireDataModel": true,
+        "requireTemplateList": true,
+        "requiredActions": ["selectDepartment", "confirmBooking"],
+        "requiredDataPaths": ["/departments", "/appointment"],
+        "requiredLiterals": ["Book Appointment", "Confirm Booking"]
+      }
+    },
+    {
+      "id": "eval-12",
+      "name": "项目管理任务看板",
+      "category": "productivity",
+      "tags": [
+        "list",
+        "data-binding",
+        "template",
+        "column",
+        "row",
+        "text",
+        "button"
+      ],
+      "userPrompt": "做一个简化的任务看板。最外层横向 Row，包含 3 个纵向 Column：To Do、In Progress、Done；每个 Column 内一个纵向 List，用 template 分别绑定 /boards/todo、/boards/inProgress、/boards/done：To Do 2 个任务（Design API、Write tests），In Progress 1 个（Build login），Done 1 个（Setup repo）；每个任务是一行 Row：任务名 Text（绑定当前项 title）和一个 Move 按钮（action=moveTask）。顶部标题 Text「Sprint Board」。",
+      "expect": {
+        "requiredComponents": ["Row", "Column", "List", "Text", "Button"],
+        "minComponents": 16,
+        "requireDataModel": true,
+        "requireTemplateList": true,
+        "requiredActions": ["moveTask"],
+        "requiredDataPaths": ["/boards"],
+        "requiredLiterals": ["Sprint Board", "To Do", "In Progress", "Done"]
+      }
+    },
+    {
+      "id": "eval-13",
+      "name": "仓库库存盘点录入",
+      "category": "operations",
+      "tags": [
+        "list",
+        "data-binding",
+        "template",
+        "column",
+        "row",
+        "text",
+        "textfield",
+        "button"
+      ],
+      "userPrompt": "做仓库盘点录入页。纵向 Column：标题「Stock Count」；商品纵向 List 用 template 绑定 /inventory，预置 3 个商品（Widget A 库存 100、Widget B 库存 50、Widget C 库存 25），每行 Row：商品名 Text（绑定 name）、系统库存 Text（绑定 stock）、一个 TextField 录入实盘数量（number 类型，绑定当前项 counted）；底部 Row：差异汇总 Text 绑定 /varianceSummary，右侧 Submit Count 主按钮（action=submitCount）。",
+      "expect": {
+        "requiredComponents": [
+          "Column",
+          "Row",
+          "List",
+          "TextField",
+          "Text",
+          "Button"
+        ],
+        "minComponents": 16,
+        "requireDataModel": true,
+        "requireTemplateList": true,
+        "requiredActions": ["submitCount"],
+        "requiredDataPaths": ["/inventory"],
+        "requiredLiterals": ["Stock Count", "Submit Count"]
+      }
+    },
+    {
+      "id": "eval-14",
+      "name": "会员积分兑换商城",
+      "category": "retail",
+      "tags": [
+        "list",
+        "data-binding",
+        "template",
+        "column",
+        "row",
+        "text",
+        "button"
+      ],
+      "userPrompt": "做会员积分商城页面。纵向 Column：顶部 Row：标题「Points Mall」，右侧积分余额 Text 绑定 /pointsBalance（2500）；礼品纵向 List 用 template 绑定 /rewards，预置 3 个礼品（Coffee Coupon 500 分、Movie Ticket 1200 分、Bluetooth Speaker 2000 分），每行 Row：礼品名 Text（绑定 name）、所需积分 Text（绑定 cost）、Redeem 按钮（action=redeemReward，context 带礼品 id）。",
+      "expect": {
+        "requiredComponents": ["Column", "Row", "List", "Text", "Button"],
+        "minComponents": 14,
+        "requireDataModel": true,
+        "requireTemplateList": true,
+        "requiredActions": ["redeemReward"],
+        "requiredDataPaths": ["/rewards"],
+        "requiredBindings": ["/pointsBalance"],
+        "requiredLiterals": ["Points Mall", "Redeem"]
+      }
+    },
+    {
+      "id": "eval-15",
+      "name": "酒店房型预订",
+      "category": "travel",
+      "tags": [
+        "list",
+        "data-binding",
+        "template",
+        "form",
+        "column",
+        "row",
+        "text",
+        "textfield",
+        "button"
+      ],
+      "userPrompt": "做酒店预订页。纵向 Column：标题「Grand Hotel」；两个 TextField：入住日期（date，绑定 /booking/checkIn）、退房日期（date，绑定 /booking/checkOut）；房型纵向 List 用 template 绑定 /rooms，预置 2 种（Standard Room 每晚 120、Deluxe Room 每晚 220），每行 Row：房型 Text（绑定 name）、价格 Text（绑定 price）、Book Now 按钮（action=bookRoom，context 带房型 id）；底部一个 Reserve 主按钮（action=confirmReservation）。",
+      "expect": {
+        "requiredComponents": [
+          "Column",
+          "Row",
+          "List",
+          "TextField",
+          "Text",
+          "Button"
+        ],
+        "minComponents": 16,
+        "requireDataModel": true,
+        "requireTemplateList": true,
+        "requiredActions": ["bookRoom", "confirmReservation"],
+        "requiredDataPaths": ["/rooms", "/booking"],
+        "requiredLiterals": ["Grand Hotel", "Book Now"]
+      }
+    },
+    {
+      "id": "eval-16",
+      "name": "工单系统筛选列表",
+      "category": "saas",
+      "tags": [
+        "list",
+        "data-binding",
+        "template",
+        "form",
+        "column",
+        "row",
+        "text",
+        "textfield",
+        "button"
+      ],
+      "userPrompt": "做客服工单系统页。纵向 Column：标题「Support Tickets」；筛选 Row：一个 TextField 输入关键字（绑定 /filter/keyword）、一个 TextField 输入状态（shortText，默认 open）、一个 Search 按钮（action=searchTickets）；工单纵向 List 用 template 绑定 /tickets，预置 3 条工单（TK-1 Login issue 状态 open、TK-2 Billing question 状态 open、TK-3 Bug report 状态 closed），每行 Row：工单号 Text（绑定 id）、标题 Text（绑定 title）、状态 Text（绑定 status），行尾一个 View 按钮（action=viewTicket）。",
+      "expect": {
+        "requiredComponents": [
+          "Column",
+          "Row",
+          "List",
+          "TextField",
+          "Text",
+          "Button"
+        ],
+        "minComponents": 18,
+        "requireDataModel": true,
+        "requireTemplateList": true,
+        "requiredActions": ["searchTickets", "viewTicket"],
+        "requiredDataPaths": ["/tickets"],
+        "requiredLiterals": ["Support Tickets", "Search"]
+      }
+    },
+    {
+      "id": "eval-17",
+      "name": "本地交互：任务完成勾选",
+      "category": "productivity",
+      "tags": ["local-update", "column", "row", "text", "button"],
+      "userPrompt": "做一个纯本地交互的演示页面（不调服务端）。纵向 Column：标题「Local Demo」；一行 Text 绑定 /statusText，初始文字 Task incomplete；一个按钮 Toggle Complete，其 action 带 localUpdate：路径 /statusText，值为字面量 Task complete；再放一个 Reset 按钮，localUpdate 把 /statusText 改回 Task incomplete。按钮的 action 名字仍需填写（toggleStatus、resetStatus）。",
+      "expect": {
+        "requiredComponents": ["Column", "Text", "Button"],
+        "minComponents": 6,
+        "requireDataModel": true,
+        "requiredActions": ["toggleStatus", "resetStatus"],
+        "requiredLiterals": ["Local Demo", "Task incomplete"]
+      }
+    },
+    {
+      "id": "eval-18",
+      "name": "多步骤保险投保信息采集",
+      "category": "finance",
+      "tags": ["form", "steps", "column", "row", "text", "textfield", "button"],
+      "userPrompt": "做车险在线投保的信息采集页。纵向 Column：标题「Auto Insurance」，步骤文字 Step 1 of 3: Vehicle Info；四个 TextField：车牌号码（shortText，绑定 /policy/plateNumber，默认值 ABC123）、车辆品牌（shortText，绑定 /policy/make）、车型年份（number，绑定 /policy/year）、车辆识别码 VIN（longText，绑定 /policy/vin）；底部 Row：左侧 Cancel（action=cancelPolicy），右侧 Continue 主按钮（action=continuePolicy）。",
+      "expect": {
+        "requiredComponents": ["Column", "Row", "TextField", "Text", "Button"],
+        "minComponents": 14,
+        "requireDataModel": true,
+        "requiredActions": ["cancelPolicy", "continuePolicy"],
+        "requiredDataPaths": ["/policy"],
+        "requiredLiterals": ["Auto Insurance", "Continue"]
+      }
+    },
+    {
+      "id": "eval-19",
+      "name": "运营数据概览仪表盘",
+      "category": "analytics",
+      "tags": [
+        "icon",
+        "dashboard",
+        "column",
+        "row",
+        "text",
+        "button",
+        "data-binding"
+      ],
+      "userPrompt": "做一个运营数据概览页。纵向 Column：标题 Text「Dashboard」；下面三个统计行，每行横向 Row，左侧一个 Icon、中间指标名 Text、右侧数值 Text（数值走数据模型路径绑定）：第一行 Icon person，指标 Total Users，绑定 /stats/users（1284）；第二行 Icon payment，指标 Revenue，绑定 /stats/revenue（$48,200）；第三行 Icon shoppingCart，指标 Orders，绑定 /stats/orders（356）；底部 Row 两个按钮：Refresh（action=refreshDashboard）和 Download Report 主按钮（action=downloadReport）。如果不确定图标名是否存在，先用 search_antd_icons 工具查询，不要编造。",
+      "expect": {
+        "requiredComponents": ["Column", "Row", "Icon", "Text", "Button"],
+        "minComponents": 18,
+        "requireDataModel": true,
+        "requiredActions": ["refreshDashboard", "downloadReport"],
+        "requiredDataPaths": ["/stats"],
+        "requiredIcons": ["person", "payment", "shoppingCart"],
+        "requiredLiterals": ["Dashboard", "Total Users", "Download Report"]
+      }
+    },
+    {
+      "id": "eval-20",
+      "name": "企业设置中心",
+      "category": "saas",
+      "tags": ["icon", "settings", "column", "row", "text", "button"],
+      "userPrompt": "做企业应用的设置中心页。纵向 Column：标题「Settings」；下面四个设置项，每个设置项是一行横向 Row：左侧 Icon、中间设置名 Text、右侧一个 Open 按钮（action=openSetting，context 里带 section 字段，值为该项的字面量）。四项依次为：Icon settings 配 Account Settings；Icon lock 配 Privacy & Security；Icon notifications 配 Notifications；Icon help 配 Help Center；最底部一个 Save Changes 主按钮（action=saveSettings）。",
+      "expect": {
+        "requiredComponents": ["Column", "Row", "Icon", "Text", "Button"],
+        "minComponents": 22,
+        "requireDataModel": false,
+        "requiredActions": ["openSetting", "saveSettings"],
+        "requiredIcons": ["settings", "lock", "notifications", "help"],
+        "requiredLiterals": ["Settings", "Account Settings", "Save Changes"]
+      }
+    },
+    {
+      "id": "eval-21",
+      "name": "个人中心功能入口",
+      "category": "consumer",
+      "tags": ["icon", "column", "row", "text", "button"],
+      "userPrompt": "做 C 端 App 的个人中心页。纵向 Column：标题「My Account」；下面一行横向 Row，均匀分布 4 个功能入口，每个入口是一个 Button（action 分别为 viewOrders、viewWishlist、viewAddresses、viewPayments），按钮的 child 是一个纵向 Column：上方一个 Icon、下方功能名 Text。四个入口依次：Icon shoppingCart 配 My Orders；Icon favorite 配 Wishlist；Icon locationOn 配 Addresses；Icon payment 配 Payment Methods。",
+      "expect": {
+        "requiredComponents": ["Column", "Row", "Icon", "Text", "Button"],
+        "minComponents": 20,
+        "requireDataModel": false,
+        "requiredActions": [
+          "viewOrders",
+          "viewWishlist",
+          "viewAddresses",
+          "viewPayments"
+        ],
+        "requiredIcons": ["shoppingCart", "favorite", "locationOn", "payment"],
+        "requiredLiterals": ["My Account", "My Orders", "Payment Methods"]
+      }
+    },
+    {
+      "id": "eval-22",
+      "name": "团队文件管理器",
+      "category": "collaboration",
+      "tags": [
+        "icon",
+        "list",
+        "data-binding",
+        "template",
+        "column",
+        "row",
+        "text",
+        "button"
+      ],
+      "userPrompt": "做团队网盘的文件管理页。纵向 Column：标题「Files」；工具栏一行横向 Row，三个按钮，每个按钮的 child 是横向 Row（一个 Icon 加一个 Text）：Icon upload 配 Upload（action=uploadFile）；Icon download 配 Download（action=downloadSelected）；Icon add 配 New Folder（action=newFolder）。文件列表是一个纵向 List，用 children.template 绑定 /files，预置 3 个文件：Documents 是文件夹（图标 folder，类型 directory）、design.png 是图片（图标 photo，类型 image）、spec.pdf 是文档（图标 attachFile，类型 document）；每行 Row：文件图标 Icon（图标名用 path 绑定当前项的 icon 字段）、文件名 Text（绑定 name）、大小 Text（绑定 size）。",
+      "expect": {
+        "requiredComponents": [
+          "Column",
+          "Row",
+          "List",
+          "Icon",
+          "Text",
+          "Button"
+        ],
+        "minComponents": 20,
+        "requireDataModel": true,
+        "requireTemplateList": true,
+        "requiredActions": ["uploadFile", "downloadSelected", "newFolder"],
+        "requiredDataPaths": ["/files"],
+        "requiredIcons": ["upload", "download", "add", "folder"],
+        "requiredLiterals": ["Files", "Upload", "New Folder"]
+      }
+    },
+    {
+      "id": "eval-23",
+      "name": "多轮：登录卡连续微调",
+      "category": "multi-turn",
+      "tags": [
+        "multi-turn",
+        "form",
+        "column",
+        "row",
+        "text",
+        "textfield",
+        "button"
+      ],
+      "userPrompt": "做一个简单的登录卡片。纵向 Column：标题 Text「Login」；两个 TextField：邮箱（shortText，绑定 /form/email）、密码（obscured，绑定 /form/password）；一个主按钮 Login（action=submitLogin，child 是文字 Login）。",
+      "expect": {
+        "requiredComponents": ["Column", "TextField", "Text", "Button"],
+        "minComponents": 8,
+        "requireDataModel": true,
+        "requiredActions": ["submitLogin"],
+        "requiredDataPaths": ["/form"],
+        "requiredLiterals": ["Login"]
+      },
+      "turns": [
+        {
+          "prompt": "把标题从 Login 改成 Welcome Back。",
+          "expect": {
+            "partialUpdate": true
+          }
+        },
+        {
+          "prompt": "把主题色改成绿色（主按钮随之变绿），用 beginRendering 的 styles 表达。",
+          "expect": {
+            "partialUpdate": true
+          }
+        },
+        {
+          "prompt": "在 Login 按钮左边再加一个普通的 Cancel 按钮（action=cancelLogin），注意更新父容器的子节点列表。",
+          "expect": {
+            "partialUpdate": true,
+            "requiredActions": ["cancelLogin"]
+          }
+        }
+      ]
+    }
+  ]
+}

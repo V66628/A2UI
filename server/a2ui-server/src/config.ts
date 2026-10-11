@@ -43,7 +43,7 @@ export const llmConfig = {
   /** 默认文本模型；可用 MODEL 覆盖 */
   model: process.env.MODEL ?? "qwen3.8-flash",
   /** 多模态（图片输入）默认视觉模型；可用 VISION_MODEL 覆盖 */
-  visionModel: process.env.VISION_MODEL ?? "qwen3-vl-flash",
+  visionModel: process.env.VISION_MODEL ?? "qwen3.5-omni-plus",
   /**
    * 单次生成的最大 token 数；可用 MAX_TOKENS 覆盖。
    * reasoning 模型（如 qwen3.8-flash）默认 max_tokens 会被推理内容占用、

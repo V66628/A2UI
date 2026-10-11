@@ -1,4 +1,6 @@
 import type { CSSProperties } from "react";
+import type { ComponentStyles } from "@a2ui/core";
+import { mergeStyles } from "../styles.js";
 
 /** 协议 textFieldType → 输入形态 */
 export type TextFieldKind =
@@ -19,6 +21,8 @@ export interface A2UITextFieldProps {
   fieldType?: TextFieldKind;
   /** 值变化回调（适配器内：path 绑定则 writeDataModel） */
   onChange: (next: string) => void;
+  /** 组件级样式覆盖（应用于外层容器） */
+  styles?: ComponentStyles;
 }
 
 const INPUT_STYLE: CSSProperties = {
@@ -41,14 +45,13 @@ export function A2UITextField({
   value,
   fieldType,
   onChange,
+  styles,
 }: A2UITextFieldProps) {
-  const labelNode = label ? (
-    <label style={LABEL_STYLE}>{label}</label>
-  ) : null;
+  const labelNode = label ? <label style={LABEL_STYLE}>{label}</label> : null;
 
   if (fieldType === "longText") {
     return (
-      <div>
+      <div style={mergeStyles(undefined, styles)}>
         {labelNode}
         <textarea
           style={{ ...INPUT_STYLE, minHeight: 80 }}
@@ -70,7 +73,7 @@ export function A2UITextField({
           : "text";
 
   return (
-    <div>
+    <div style={mergeStyles(undefined, styles)}>
       {labelNode}
       <input
         style={INPUT_STYLE}

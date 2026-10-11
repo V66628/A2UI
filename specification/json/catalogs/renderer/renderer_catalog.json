@@ -1,6 +1,6 @@
 {
   "catalogId": "https://a2ui.org/specification/v0_8/catalogs/renderer/renderer_catalog.json",
-  "description": "当前 @a2ui/react renderer（packages/a2ui-react/src/components）实际支持的 A2UI 标准组件子集：Text、Row、Column、List、Button、TextField。MountFade 为入场动画的内部包装组件，不属于协议组件。",
+  "description": "当前 @a2ui/react renderer（packages/a2ui-react/src/components）实际支持的 A2UI 标准组件子集：Text、Row、Column、List、Button、TextField、Icon（Icon 经 @ant-design/icons 渲染）。MountFade 为入场动画的内部包装组件，不属于协议组件。",
   "components": {
     "Text": {
       "type": "object",
@@ -22,10 +22,102 @@
         "usageHint": {
           "type": "string",
           "description": "A hint for the base text style. One of:\n- `h1`: Largest heading.\n- `h2`: Second largest heading.\n- `h3`: Third largest heading.\n- `h4`: Fourth largest heading.\n- `h5`: Fifth largest heading.\n- `caption`: Small text for captions.\n- `body`: Standard body text.",
-          "enum": ["h1", "h2", "h3", "h4", "h5", "caption", "body"]
+          "enum": [
+            "h1",
+            "h2",
+            "h3",
+            "h4",
+            "h5",
+            "caption",
+            "body"
+          ]
+        },
+        "styles": {
+          "type": "object",
+          "description": "组件级样式覆盖（A2UI 扩展）：在语义化 props 之外覆盖具体视觉样式。所有长度单位为 px，字段均可选。",
+          "additionalProperties": false,
+          "properties": {
+            "width": {
+              "type": "number"
+            },
+            "height": {
+              "type": "number"
+            },
+            "minWidth": {
+              "type": "number"
+            },
+            "maxWidth": {
+              "type": "number"
+            },
+            "minHeight": {
+              "type": "number"
+            },
+            "maxHeight": {
+              "type": "number"
+            },
+            "marginTop": {
+              "type": "number"
+            },
+            "marginRight": {
+              "type": "number"
+            },
+            "marginBottom": {
+              "type": "number"
+            },
+            "marginLeft": {
+              "type": "number"
+            },
+            "paddingTop": {
+              "type": "number"
+            },
+            "paddingRight": {
+              "type": "number"
+            },
+            "paddingBottom": {
+              "type": "number"
+            },
+            "paddingLeft": {
+              "type": "number"
+            },
+            "fontSize": {
+              "type": "number"
+            },
+            "fontWeight": {
+              "type": [
+                "number",
+                "string"
+              ],
+              "enum": [
+                "normal",
+                "bold"
+              ]
+            },
+            "lineHeight": {
+              "type": "number"
+            },
+            "color": {
+              "type": "string"
+            },
+            "background": {
+              "type": "string"
+            },
+            "borderColor": {
+              "type": "string"
+            },
+            "borderRadius": {
+              "type": "number"
+            },
+            "opacity": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            }
+          }
         }
       },
-      "required": ["text"]
+      "required": [
+        "text"
+      ]
     },
     "Row": {
       "type": "object",
@@ -54,7 +146,10 @@
                   "type": "string"
                 }
               },
-              "required": ["componentId", "dataBinding"]
+              "required": [
+                "componentId",
+                "dataBinding"
+              ]
             }
           }
         },
@@ -73,10 +168,99 @@
         "alignment": {
           "type": "string",
           "description": "Defines the alignment of children along the cross axis (vertically). This corresponds to the CSS 'align-items' property.",
-          "enum": ["start", "center", "end", "stretch"]
+          "enum": [
+            "start",
+            "center",
+            "end",
+            "stretch"
+          ]
+        },
+        "styles": {
+          "type": "object",
+          "description": "组件级样式覆盖（A2UI 扩展）：在语义化 props 之外覆盖具体视觉样式。所有长度单位为 px，字段均可选。",
+          "additionalProperties": false,
+          "properties": {
+            "width": {
+              "type": "number"
+            },
+            "height": {
+              "type": "number"
+            },
+            "minWidth": {
+              "type": "number"
+            },
+            "maxWidth": {
+              "type": "number"
+            },
+            "minHeight": {
+              "type": "number"
+            },
+            "maxHeight": {
+              "type": "number"
+            },
+            "marginTop": {
+              "type": "number"
+            },
+            "marginRight": {
+              "type": "number"
+            },
+            "marginBottom": {
+              "type": "number"
+            },
+            "marginLeft": {
+              "type": "number"
+            },
+            "paddingTop": {
+              "type": "number"
+            },
+            "paddingRight": {
+              "type": "number"
+            },
+            "paddingBottom": {
+              "type": "number"
+            },
+            "paddingLeft": {
+              "type": "number"
+            },
+            "fontSize": {
+              "type": "number"
+            },
+            "fontWeight": {
+              "type": [
+                "number",
+                "string"
+              ],
+              "enum": [
+                "normal",
+                "bold"
+              ]
+            },
+            "lineHeight": {
+              "type": "number"
+            },
+            "color": {
+              "type": "string"
+            },
+            "background": {
+              "type": "string"
+            },
+            "borderColor": {
+              "type": "string"
+            },
+            "borderRadius": {
+              "type": "number"
+            },
+            "opacity": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            }
+          }
         }
       },
-      "required": ["children"]
+      "required": [
+        "children"
+      ]
     },
     "Column": {
       "type": "object",
@@ -105,7 +289,10 @@
                   "type": "string"
                 }
               },
-              "required": ["componentId", "dataBinding"]
+              "required": [
+                "componentId",
+                "dataBinding"
+              ]
             }
           }
         },
@@ -124,10 +311,99 @@
         "alignment": {
           "type": "string",
           "description": "Defines the alignment of children along the cross axis (horizontally). This corresponds to the CSS 'align-items' property.",
-          "enum": ["center", "end", "start", "stretch"]
+          "enum": [
+            "center",
+            "end",
+            "start",
+            "stretch"
+          ]
+        },
+        "styles": {
+          "type": "object",
+          "description": "组件级样式覆盖（A2UI 扩展）：在语义化 props 之外覆盖具体视觉样式。所有长度单位为 px，字段均可选。",
+          "additionalProperties": false,
+          "properties": {
+            "width": {
+              "type": "number"
+            },
+            "height": {
+              "type": "number"
+            },
+            "minWidth": {
+              "type": "number"
+            },
+            "maxWidth": {
+              "type": "number"
+            },
+            "minHeight": {
+              "type": "number"
+            },
+            "maxHeight": {
+              "type": "number"
+            },
+            "marginTop": {
+              "type": "number"
+            },
+            "marginRight": {
+              "type": "number"
+            },
+            "marginBottom": {
+              "type": "number"
+            },
+            "marginLeft": {
+              "type": "number"
+            },
+            "paddingTop": {
+              "type": "number"
+            },
+            "paddingRight": {
+              "type": "number"
+            },
+            "paddingBottom": {
+              "type": "number"
+            },
+            "paddingLeft": {
+              "type": "number"
+            },
+            "fontSize": {
+              "type": "number"
+            },
+            "fontWeight": {
+              "type": [
+                "number",
+                "string"
+              ],
+              "enum": [
+                "normal",
+                "bold"
+              ]
+            },
+            "lineHeight": {
+              "type": "number"
+            },
+            "color": {
+              "type": "string"
+            },
+            "background": {
+              "type": "string"
+            },
+            "borderColor": {
+              "type": "string"
+            },
+            "borderRadius": {
+              "type": "number"
+            },
+            "opacity": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            }
+          }
         }
       },
-      "required": ["children"]
+      "required": [
+        "children"
+      ]
     },
     "List": {
       "type": "object",
@@ -156,22 +432,117 @@
                   "type": "string"
                 }
               },
-              "required": ["componentId", "dataBinding"]
+              "required": [
+                "componentId",
+                "dataBinding"
+              ]
             }
           }
         },
         "direction": {
           "type": "string",
           "description": "The direction in which the list items are laid out. Defaults to 'vertical'.",
-          "enum": ["vertical", "horizontal"]
+          "enum": [
+            "vertical",
+            "horizontal"
+          ]
         },
         "alignment": {
           "type": "string",
           "description": "Defines the alignment of children along the cross axis.",
-          "enum": ["start", "center", "end", "stretch"]
+          "enum": [
+            "start",
+            "center",
+            "end",
+            "stretch"
+          ]
+        },
+        "styles": {
+          "type": "object",
+          "description": "组件级样式覆盖（A2UI 扩展）：在语义化 props 之外覆盖具体视觉样式。所有长度单位为 px，字段均可选。",
+          "additionalProperties": false,
+          "properties": {
+            "width": {
+              "type": "number"
+            },
+            "height": {
+              "type": "number"
+            },
+            "minWidth": {
+              "type": "number"
+            },
+            "maxWidth": {
+              "type": "number"
+            },
+            "minHeight": {
+              "type": "number"
+            },
+            "maxHeight": {
+              "type": "number"
+            },
+            "marginTop": {
+              "type": "number"
+            },
+            "marginRight": {
+              "type": "number"
+            },
+            "marginBottom": {
+              "type": "number"
+            },
+            "marginLeft": {
+              "type": "number"
+            },
+            "paddingTop": {
+              "type": "number"
+            },
+            "paddingRight": {
+              "type": "number"
+            },
+            "paddingBottom": {
+              "type": "number"
+            },
+            "paddingLeft": {
+              "type": "number"
+            },
+            "fontSize": {
+              "type": "number"
+            },
+            "fontWeight": {
+              "type": [
+                "number",
+                "string"
+              ],
+              "enum": [
+                "normal",
+                "bold"
+              ]
+            },
+            "lineHeight": {
+              "type": "number"
+            },
+            "color": {
+              "type": "string"
+            },
+            "background": {
+              "type": "string"
+            },
+            "borderColor": {
+              "type": "string"
+            },
+            "borderRadius": {
+              "type": "number"
+            },
+            "opacity": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            }
+          }
         }
       },
-      "required": ["children"]
+      "required": [
+        "children"
+      ]
     },
     "Button": {
       "type": "object",
@@ -184,6 +555,16 @@
         "primary": {
           "type": "boolean",
           "description": "Indicates if this button should be styled as the primary action."
+        },
+        "paddingVertical": {
+          "type": "number",
+          "description": "A2UI 扩展：按钮的垂直内边距（px，含上下），默认 6。",
+          "minimum": 0
+        },
+        "paddingHorizontal": {
+          "type": "number",
+          "description": "A2UI 扩展：按钮的水平内边距（px，含左右），默认 16。",
+          "minimum": 0
         },
         "action": {
           "type": "object",
@@ -222,7 +603,10 @@
                     }
                   }
                 },
-                "required": ["key", "value"]
+                "required": [
+                  "key",
+                  "value"
+                ]
               }
             },
             "localUpdate": {
@@ -254,13 +638,103 @@
                   }
                 }
               },
-              "required": ["path", "value"]
+              "required": [
+                "path",
+                "value"
+              ]
             }
           },
-          "required": ["name"]
+          "required": [
+            "name"
+          ]
+        },
+        "styles": {
+          "type": "object",
+          "description": "组件级样式覆盖（A2UI 扩展）：在语义化 props 之外覆盖具体视觉样式。所有长度单位为 px，字段均可选。",
+          "additionalProperties": false,
+          "properties": {
+            "width": {
+              "type": "number"
+            },
+            "height": {
+              "type": "number"
+            },
+            "minWidth": {
+              "type": "number"
+            },
+            "maxWidth": {
+              "type": "number"
+            },
+            "minHeight": {
+              "type": "number"
+            },
+            "maxHeight": {
+              "type": "number"
+            },
+            "marginTop": {
+              "type": "number"
+            },
+            "marginRight": {
+              "type": "number"
+            },
+            "marginBottom": {
+              "type": "number"
+            },
+            "marginLeft": {
+              "type": "number"
+            },
+            "paddingTop": {
+              "type": "number"
+            },
+            "paddingRight": {
+              "type": "number"
+            },
+            "paddingBottom": {
+              "type": "number"
+            },
+            "paddingLeft": {
+              "type": "number"
+            },
+            "fontSize": {
+              "type": "number"
+            },
+            "fontWeight": {
+              "type": [
+                "number",
+                "string"
+              ],
+              "enum": [
+                "normal",
+                "bold"
+              ]
+            },
+            "lineHeight": {
+              "type": "number"
+            },
+            "color": {
+              "type": "string"
+            },
+            "background": {
+              "type": "string"
+            },
+            "borderColor": {
+              "type": "string"
+            },
+            "borderRadius": {
+              "type": "number"
+            },
+            "opacity": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            }
+          }
         }
       },
-      "required": ["child", "action"]
+      "required": [
+        "child",
+        "action"
+      ]
     },
     "TextField": {
       "type": "object",
@@ -295,14 +769,258 @@
         "textFieldType": {
           "type": "string",
           "description": "The type of input field to display: 'obscured' renders a password input, 'longText' a multi-line textarea, 'number' and 'date' use the corresponding native inputs.",
-          "enum": ["date", "longText", "number", "shortText", "obscured"]
+          "enum": [
+            "date",
+            "longText",
+            "number",
+            "shortText",
+            "obscured"
+          ]
         },
         "validationRegexp": {
           "type": "string",
           "description": "A regular expression used for client-side validation of the input."
+        },
+        "styles": {
+          "type": "object",
+          "description": "组件级样式覆盖（A2UI 扩展）：在语义化 props 之外覆盖具体视觉样式。所有长度单位为 px，字段均可选。",
+          "additionalProperties": false,
+          "properties": {
+            "width": {
+              "type": "number"
+            },
+            "height": {
+              "type": "number"
+            },
+            "minWidth": {
+              "type": "number"
+            },
+            "maxWidth": {
+              "type": "number"
+            },
+            "minHeight": {
+              "type": "number"
+            },
+            "maxHeight": {
+              "type": "number"
+            },
+            "marginTop": {
+              "type": "number"
+            },
+            "marginRight": {
+              "type": "number"
+            },
+            "marginBottom": {
+              "type": "number"
+            },
+            "marginLeft": {
+              "type": "number"
+            },
+            "paddingTop": {
+              "type": "number"
+            },
+            "paddingRight": {
+              "type": "number"
+            },
+            "paddingBottom": {
+              "type": "number"
+            },
+            "paddingLeft": {
+              "type": "number"
+            },
+            "fontSize": {
+              "type": "number"
+            },
+            "fontWeight": {
+              "type": [
+                "number",
+                "string"
+              ],
+              "enum": [
+                "normal",
+                "bold"
+              ]
+            },
+            "lineHeight": {
+              "type": "number"
+            },
+            "color": {
+              "type": "string"
+            },
+            "background": {
+              "type": "string"
+            },
+            "borderColor": {
+              "type": "string"
+            },
+            "borderRadius": {
+              "type": "number"
+            },
+            "opacity": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            }
+          }
         }
       },
-      "required": ["label"]
+      "required": [
+        "label"
+      ]
+    },
+    "Icon": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "object",
+          "description": "The name of the icon to display as a canonical icon id (rendered via the antd / @ant-design/icons library). This can be a literal string from the enum or a reference to a value in the data model ('path'). If you are unsure which icon ids exist, call the search_antd_icons tool; do not invent names absent from the enum/tool results.",
+          "additionalProperties": false,
+          "properties": {
+            "literalString": {
+              "type": "string",
+              "enum": [
+                "accountCircle",
+                "add",
+                "arrowBack",
+                "arrowForward",
+                "attachFile",
+                "calendarToday",
+                "call",
+                "camera",
+                "check",
+                "close",
+                "delete",
+                "download",
+                "edit",
+                "event",
+                "error",
+                "favorite",
+                "favoriteOff",
+                "folder",
+                "help",
+                "home",
+                "info",
+                "locationOn",
+                "lock",
+                "lockOpen",
+                "mail",
+                "menu",
+                "moreVert",
+                "moreHoriz",
+                "notificationsOff",
+                "notifications",
+                "payment",
+                "person",
+                "phone",
+                "photo",
+                "print",
+                "refresh",
+                "search",
+                "send",
+                "settings",
+                "share",
+                "shoppingCart",
+                "star",
+                "starHalf",
+                "starOff",
+                "upload",
+                "visibility",
+                "visibilityOff",
+                "warning"
+              ]
+            },
+            "path": {
+              "type": "string"
+            }
+          }
+        },
+        "styles": {
+          "type": "object",
+          "description": "组件级样式覆盖（A2UI 扩展）：在语义化 props 之外覆盖具体视觉样式。所有长度单位为 px，字段均可选。",
+          "additionalProperties": false,
+          "properties": {
+            "width": {
+              "type": "number"
+            },
+            "height": {
+              "type": "number"
+            },
+            "minWidth": {
+              "type": "number"
+            },
+            "maxWidth": {
+              "type": "number"
+            },
+            "minHeight": {
+              "type": "number"
+            },
+            "maxHeight": {
+              "type": "number"
+            },
+            "marginTop": {
+              "type": "number"
+            },
+            "marginRight": {
+              "type": "number"
+            },
+            "marginBottom": {
+              "type": "number"
+            },
+            "marginLeft": {
+              "type": "number"
+            },
+            "paddingTop": {
+              "type": "number"
+            },
+            "paddingRight": {
+              "type": "number"
+            },
+            "paddingBottom": {
+              "type": "number"
+            },
+            "paddingLeft": {
+              "type": "number"
+            },
+            "fontSize": {
+              "type": "number"
+            },
+            "fontWeight": {
+              "type": [
+                "number",
+                "string"
+              ],
+              "enum": [
+                "normal",
+                "bold"
+              ]
+            },
+            "lineHeight": {
+              "type": "number"
+            },
+            "color": {
+              "type": "string"
+            },
+            "background": {
+              "type": "string"
+            },
+            "borderColor": {
+              "type": "string"
+            },
+            "borderRadius": {
+              "type": "number"
+            },
+            "opacity": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            }
+          }
+        }
+      },
+      "required": [
+        "name"
+      ]
     }
   },
   "styles": {
